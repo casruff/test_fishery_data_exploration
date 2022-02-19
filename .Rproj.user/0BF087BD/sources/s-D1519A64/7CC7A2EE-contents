@@ -1,0 +1,277 @@
+## 2020 Baker River Sockeye Preseason forecast
+
+if(!require("readr")) {
+  install.packages("readr")
+  library("readr")
+}
+
+if(!require("MASS")) {
+  install.packages("MASS")
+  library("MASS")
+}
+
+if(!require("nlme")) {
+  install.packages("nlme")
+  library("nlme")
+}
+
+  ## read the data file
+  data <- read.csv("baker_sockeye_SAR.csv")
+  
+  ## select outmigration years for analysis
+  year_min <- 2000
+  year_max <- 2018
+  
+  ## select current run size prediction year
+  pred.year <- 2020
+  
+  ## years of data to include for fitting models
+  years <- seq(year_min,year_max,1)
+  
+  ## number of years in data for fitting  models
+  n_yrs <- length(years)
+  
+  ## select data for model fitting 
+  SAR <- data[which(data$year %in% years),]
+  smolts <- SAR$smolts
+  
+  
+  ## logit transform the SAR data
+  SAR_total <- log(SAR$Total_SAR/(1-SAR$Total_SAR))
+  SAR_OA2 <- log(SAR$OA2_SAR/(1-SAR$OA2_SAR))
+  SAR_OA3 <- log(SAR$OA3_SAR/(1-SAR$OA3_SAR))
+  
+  ## specify adult recruit data
+  recruits <- SAR$Total_Recruits
+  recruits_OA2 <- SAR$OA2_Recruits
+  recruits_OA3 <- SAR$OA3_Recruits
+
+## ----get_NPGO_metadata---------------------------------------------------
+
+  ## URL for NPGO data
+  url_NPGO <- "http://www.o3d.org/npgo/npgo.php"
+  ## raw NPGO data 
+  NPGO_raw <- read_lines(url_NPGO)
+  ## line with data headers
+  hdr_NPGO <- which(lapply(NPGO_raw,grep,pattern="YEAR")==1, arr.ind=TRUE)
+  ## print NPGO metadata
+  print(NPGO_raw[seq(hdr_NPGO)],quote=FALSE)
+  
+  ## ----get_NPGO------------------------------------------------------------
+  ## NPGO data for years of interest
+  dat_NPGO <- read_table(url_NPGO, col_names = FALSE, skip=hdr_NPGO + (year_min-1950)*12, n_max = (n_yrs)*12)
+  
+  colnames(dat_NPGO) <- c("year","month","NPGO")
+  
+  ## select Feburary NPGO for years of interest indexed by outmigration year 
+  dat_NPGO <- dat_NPGO[which(dat_NPGO$year >= year_min &
+                         dat_NPGO$year <= year_max  & dat_NPGO$month %in% c(2)),]
+  
+  dat_NPGO <- aggregate(NPGO~year,data = dat_NPGO, FUN = mean)
+  
+  dat_NPGO <- data.frame(year = dat_NPGO$year,NPGO = dat_NPGO$NPGO)
+  dat_NPGO <- dat_NPGO
+  dat_NPGO
+  NPGO <- dat_NPGO$NPGO[which(dat_NPGO$year %in% years)]
+
+## ----fit models to data------------------------------------------------------------
+
+##1. first model is simple linear model using February NPGO to predict Smolt to Ocean age 2 survival
+  SAR_OA2_obs <- SAR_OA2[1:(n_yrs-1)]
+  NPGO <- NPGO[1:(n_yrs-1)]
+  model_SAR_OA2 <- lm(SAR_OA2_obs~NPGO)
+  summary(model_SAR_OA2)
+
+  model_SAR_OA2_AR1 <- gls(SAR_OA2_obs~NPGO,correlation = corAR1(0.5,form=~1))
+  summary(model_SAR_OA2_AR1)
+  
+  ## Check model assumptions for normality
+  par(mfrow = c(2,2))
+  plot(model_SAR_OA2)
+
+  
+  
+##2. Fit sibling regression model using ocean age 2 recruits to predict the the 
+##   following return year ocean age 3 recruits
+
+  ## select recruits organized by outmigration year through most complete outmigration year (2016) 
+  recruits_OA2 <- log(SAR$OA2_Recruits[1:(n_yrs -2)])
+  recruits_OA3 <- log(SAR$OA3_Recruits[1:(n_yrs -2)])
+  
+  plot(recruits_OA3~recruits_OA2)
+  model_sibling_OA3 <- lm(recruits_OA3~recruits_OA2) 
+  summary(model_sibling_OA3)
+  
+  model_sibling_OA3_AR1 <- gls(recruits_OA3~recruits_OA2,correlation = corAR1(0.5,form=~1)) 
+  summary(model_sibling_OA3_AR1)
+  ## Check model assumptions for normality
+  par(mfrow = c(2,2))
+  plot(model_sibling_OA3)
+  plot(residuals(model_sibling_OA3))
+
+
+  
+  ## ----conduct leave one out crossvalidation to compute annual run size predictions---
+  
+  OA2_recruits <- matrix(NA,nrow = n_yrs,ncol = 3,dimnames = list(NULL,c("median_OA2","lower_OA2","upper_OA2")))
+  OA3_recruits <- matrix(NA,nrow = n_yrs,ncol = 3,dimnames = list(NULL,c("median_OA3","lower_OA3","upper_OA3")))
+  
+  SAR_OA2_pred_hind <- matrix(NA,nrow = n_yrs,ncol = 3,dimnames = list(NULL,c("median_OA2","lower_OA2","upper_OA2")))
+  
+  ## return years to generate forcast + current forecast year (2019)
+  TRS.pred.years <- seq(year_min+3,year_max+1,1)
+  TRS.pred.years
+  
+  ## conduct leave one out cross validation
+  for(i in 1:(n_yrs)){
+    #i <- 19
+    SAR_OA2_temp <- SAR_OA2_obs[-i]
+    NPGO <- dat_NPGO$NPGO[which(dat_NPGO$year %in% years)]
+    
+    if(i < n_yrs){
+     NPGO <- NPGO[1:(n_yrs-1)]
+    }
+    
+    NPGO.pred <- NPGO[i]
+    NPGO <- NPGO[-i]
+    
+    model_SAR_OA2_temp <- lm(SAR_OA2_temp~NPGO)
+    #model_SAR_OA2_temp <- gls(SAR_OA2_temp~NPGO,correlation = corAR1(0.5,form=~1))
+    summary(model_SAR_OA2_temp)
+    
+    SAR_OA2_pred <- predict(model_SAR_OA2_temp,newdata = list(NPGO = NPGO.pred),interval = "confidence",level = 0.95)
+    
+    ## compute inverse logit to convert to 
+    SAR_OA2_pred <- 1/(1+exp(-SAR_OA2_pred))
+    SAR_OA2_pred_hind[i,] <- SAR_OA2_pred
+    
+    smolts.pred <- smolts[i]
+    OA2_recruits[i,] <- smolts.pred*SAR_OA2_pred
+    
+    
+    
+    if(i < n_yrs){
+      #i <- 18
+      recruits_OA2 <- log(SAR$OA2_Recruits[1:(n_yrs -1)])
+      recruits_OA2_pred <- recruits_OA2[i]
+      recruits_OA2 <- (recruits_OA2[-i])
+      
+      recruits_OA3 <- log(SAR$OA3_Recruits[1:(n_yrs -1)])
+      recruits_OA3 <- (recruits_OA3[-i])
+      
+      ##---code for fitting glm model with negative binomial errors. If using, don't 
+      ##---log response and predictor variables
+      #model_sibling_OA3_temp <- glm.nb(as.integer(recruits_OA3)~recruits_OA2)
+      #Rbeta1 <- mvrnorm(n = 1000, coef(model_sibling_OA3_temp), vcov(model_sibling_OA3_temp))
+      #sim1 <- Rbeta1[,1] + Rbeta1[,2] %*% t(recruits_OA2_pred)
+      #confInt1 <-exp(apply(sim1,2,FUN = function(x){quantile(x,c(.500,.025,0.975))}))
+      #row.names(confInt1)<-c("Median","Lower","Upper")
+      ##OA3_recruits[i,]<- t(confInt1)
+      
+      
+      model_sibling_OA3_temp <- lm(recruits_OA3~recruits_OA2) 
+      #model_sibling_OA3_temp <- gls(recruits_OA3~recruits_OA2,correlation = corAR1(0.5,form=~1)) 
+      
+      recruits_OA3_pred <- exp(predict(model_sibling_OA3_temp,newdata = list(recruits_OA2 = recruits_OA2_pred),interval = "confidence",
+                                       level = 0.95))
+      summary(recruits_OA3_pred)
+     
+      OA3_recruits[i,]<- recruits_OA3_pred
+      
+    }#end if
+    
+  }# next year
+
+  ## lag recruits to match corresponding return year +2 for OA2 and +3 for OA3
+  OA3_recruits <- data.frame(return_year = years + 3,OA3_recruits)
+  OA2_recruits <- data.frame(return_year = years + 2,OA2_recruits)
+  
+  ret_year_run_size <- merge(OA2_recruits,OA3_recruits)
+  
+  TRS.pred.median <- ret_year_run_size$median_OA2 + ret_year_run_size$median_OA3
+  TRS.pred.lower <- ret_year_run_size$lower_OA2 + ret_year_run_size$lower_OA3
+  TRS.pred.upper <- ret_year_run_size$upper_OA2 + ret_year_run_size$upper_OA3
+  
+  
+  TRS.obs <- data$returnYear_TRS[which(data$year %in% TRS.pred.years)]
+
+
+  ###2020 run size prediction (OA2 + OA3 recruits)
+  matrix(c(TRS.pred.lower[which(ret_year_run_size$return_year %in% pred.year)],
+    TRS.pred.median[which(ret_year_run_size$return_year %in% pred.year)],
+    TRS.pred.upper[which(ret_year_run_size$return_year %in% pred.year)]),nrow = 3,ncol = 1,dimnames = list(c("2.5%","50%","97.5"),"forecast"))
+  
+
+  ## plot model fits and peformance
+  
+  ## extract fitted values and confidence intervals from OA2 SAR vs Feb NPGO model
+  NPGO_pred <- seq(min(NPGO),max(NPGO)+0.5,.1)
+  SAR_OA2_pred <- predict(model_SAR_OA2,newdata = list(NPGO = NPGO_pred),interval = "confidence",level = 0.95)
+  
+  ## compute inverse logit to convert back to raw SAR value
+  SAR_OA2_pred <- 1/(1+exp(-SAR_OA2_pred))
+  
+  
+  ## extract fitted values and confidence intervals from sibling OA3 recruits vs OA2 recruits model
+  recruits_OA2_pred <- seq(0,max(recruits_OA2)+1,0.1)
+  
+  recruits_OA3_pred <- exp(predict(model_sibling_OA3,newdata = list(recruits_OA2 = recruits_OA2_pred),
+                                   interval = "confidence",level = 0.95))
+  
+  
+  
+  
+  clr <- rgb(0, 0, 255, alpha = 40, maxColorValue = 255)
+
+  png("plot_results.png", height=5, width=8, units="in", res=300)
+  
+    layout(matrix(c(1,1,2,3),2,2),c(4,3),c(20,20))
+    CI_vec <- c(0.025,0.5,0.975)
+    offSet <- 0.06
+    par(mai=c(0.8,0.8,0.1,0.1), omi=c(0,0,0,0))
+    
+    plot(TRS.obs~TRS.pred.years,pch = 16,ylim = c(0,65000),xlim = c(min(ret_year_run_size$return_year),max(ret_year_run_size$return_year)),
+         xlab = "Return year",ylab = "Terminal run size",cex.lab = 1.5)
+    lines(TRS.pred.median~ret_year_run_size$return_year,col ="blue")
+    polygon(c((ret_year_run_size$return_year),rev((ret_year_run_size$return_year))),c(TRS.pred.upper,rev(TRS.pred.lower)), col=clr, border=NA)
+    
+    legend("topleft",legend = "A)",bty = "n")
+    
+    
+    ##plot relationship between OA2 SAR and February NPGO
+    SAR_OA2_obs <- SAR_OA2[1:(n_yrs-1)]
+    SAR_OA2_obs <- 1/(1+exp(-SAR_OA2_obs))
+    NPGO <- dat_NPGO[1:(n_yrs-1),2]
+    #NPGO_pred <- seq(min(NPGO),max(NPGO),.1)
+    
+    
+    
+    plot(SAR_OA2_obs~NPGO,pch = 16,ylim = c(0,.20),xlab = "Feb. NPGO",
+         ylab = "OA2 SAR",cex.lab = 1.5,xlim = c(-3,3))
+    lines(SAR_OA2_pred[,1]~NPGO_pred,col = "blue")
+    polygon(c(NPGO_pred,rev(NPGO_pred)),c(SAR_OA2_pred[,3],rev(SAR_OA2_pred[,2])), col=clr, border=NA)
+    points(dat_NPGO[n_yrs,2],SAR_OA2_pred_hind[n_yrs,1],cex = 1.3,col = "red")
+    
+
+    
+    legend("topleft",legend = "B)",bty = "n")
+    
+    ## plot sibling relationship between OA3 recruits and OA2 recruits
+    recruits_OA2 <- SAR$OA2_Recruits[1:(n_yrs -2)]
+    recruits_OA3 <- SAR$OA3_Recruits[1:(n_yrs -2)]
+    
+    plot(recruits_OA3~recruits_OA2,pch = 16,ylim = c(0,16000),
+         xlab = "OA2 Recruits",ylab = "OA3 Recruits",cex.lab = 1.5)
+    lines(recruits_OA3_pred[,1]~exp(recruits_OA2_pred),col = "blue")
+    polygon(c(exp(recruits_OA2_pred),rev(exp(recruits_OA2_pred))),c(recruits_OA3_pred[,3],rev(recruits_OA3_pred[,2])), col=clr, border=NA)
+    
+    points(SAR$OA2_Recruits[n_yrs-1],OA3_recruits[n_yrs - 1,2],cex = 1.3,col = "red")
+    
+    #segments(0,OA3_recruits[n_yrs - 1,2],SAR$OA2_Recruits[n_yrs-1],OA3_recruits[n_yrs - 1,2])
+    #segments(SAR$OA2_Recruits[n_yrs-1],-1,SAR$OA2_Recruits[n_yrs-1],OA3_recruits[n_yrs - 1,2])
+    
+    
+    legend("topleft",legend = "C)",bty = "n")
+    
+  dev.off()
+  

@@ -1,0 +1,134 @@
+
+
+if(!require("readr")) {
+  install.packages("readr")
+  library("readr")
+}
+if(!require("here")) {
+  install.packages("here")
+  library("here")
+}
+
+if(!require("mgcv")) {
+  install.packages("mgcv")
+  library("mgcv")
+}
+
+if(!require("reshape2")) {
+  install.packages("reshape2")
+  library("reshape2")
+}
+
+if(!require("lubridate")) {
+  install.packages("lubridate")
+  library("lubridate")
+}
+
+if(!require("dplyr")) {
+  install.packages("dplyr")
+  library("dplyr")
+}
+
+## set data dir
+datadir <- here("data")
+
+## first & last years of fish data
+yr_frst <- 2013
+yr_last <- 2019
+
+## site of interest
+site <- "Fernando"
+
+## data file names
+## 1. file with terminal run size data
+fn_trs <- "sthd_trs.csv"
+
+## 2. file with age comp data
+fn_tst <- "skgt_sthd_tst_fsh.csv"
+
+
+## read in data
+dat_tst_fsh <- read_csv(file.path(datadir,fn_tst))
+
+
+
+dat_trs <- read_csv(file.path(datadir,fn_trs))
+
+
+## extract yday
+dat_tst_fsh$day <- as.integer(format(dat_tst_fsh$date,"%j"))
+
+## get flow data (currently using mainstem at mount vernon)
+## flow gage ID
+flow_site <- 12194000  
+## get URL for flow data from USGS
+flow_url <- paste0("https://waterdata.usgs.gov/nwis/dv",
+                   "?cb_00060=on",
+                   "&format=rdb",
+                   "&site_no=",flow_site,
+                   "&begin_date=",yr_frst,"-01-01",
+                   "&end_date=",yr_last,"-12-31")
+
+## raw flow data from USGS
+flow_raw <- read_lines(flow_url)
+## lines with metadata
+hdr_flow <- which(lapply(flow_raw, grep, pattern = "\\#")==1, arr.ind = TRUE)
+## print flow metadata
+print(flow_raw[hdr_flow], quote = FALSE)
+
+## flow data for years of interest
+dat_flow <-  read_tsv(flow_url,
+                      col_names = FALSE,
+                      col_types = "ciDdc",
+                      skip = max(hdr_flow)+2)
+colnames(dat_flow) <- unlist(strsplit(tolower(flow_raw[max(hdr_flow)+1]),
+                                      split = "\\s+"))
+head(dat_flow)
+
+## keep only relevant columns
+dat_flow <- dat_flow[c("datetime", grep("[0-9]$", colnames(dat_flow), value = TRUE))]
+## nicer column names
+colnames(dat_flow) <- c("date","flow")
+## convert cubic feet to cubic meters
+dat_flow$flow <- dat_flow$flow / 35.3147
+## flow by year & month
+#dat_flow$year <- as.integer(format(dat_flow$date,"%Y"))
+#dat_flow$day <- as.integer(format(dat_flow$date,"%j"))
+#dat_flow$month <- as.integer(format(dat_flow$date,"%m"))
+#dat_flow <- dat_flow[,c("year","date","flow")]
+
+x <- as.difftime(dat_tst_fsh$time_out, format = "%H:%M:%S")
+y <- as.difftime(dat_tst_fsh$time_in, format = "%H:%M:%S")
+
+dat_tst_fsh$time_fished <- as.numeric(difftime(x,y))
+
+
+dat <- group_by(dat_tst_fsh,site,year,date,day) %>% summarise(total_catch = sum(SthdW),effort_duration = sum(time_fished),effort_set_num = length(set_num))
+dat <- dat[which(dat$year %in% seq(yr_frst,yr_last,1)),]
+## data file for analysis
+dat <- merge(dat,dat_flow, by = "date")
+dat <- merge(dat,dat_trs, by = "year")
+
+
+## look at sites individually
+dat <- dat[dat$site == site,]
+
+dat$log_flow <- log(dat$flow)
+dat$log_effort_duration <- log(dat$effort_duration)
+dat$log_effort_set_num <- log(dat$effort_set_num)
+dat$log_trs <- log(dat$trs)
+
+plot(dat$effort_duration~dat$total_catch)
+
+
+##fit exploratory gam model
+model <- gam(total_catch~ s(day) + log_flow + ti(year,day) +
+                 + offset(log_effort_duration) + offset(trs) ,data = dat, family = "nb")
+
+summary(model)
+
+plot.gam(model, residuals = T, all.terms = T)
+
+
+
+

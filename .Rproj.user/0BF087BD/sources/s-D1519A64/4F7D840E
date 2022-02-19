@@ -1,0 +1,24 @@
+{
+    "id": "4F7D840E",
+    "path": "~/projects/RWorkflow/test_fishery_data_exploration/test_fishery_analysis.R",
+    "project_path": "test_fishery_analysis.R",
+    "type": "r_source",
+    "hash": "0",
+    "contents": "",
+    "dirty": true,
+    "created": 1610057801985.0,
+    "source_on_save": false,
+    "relative_order": 1,
+    "properties": {
+        "cursorPosition": "129,0",
+        "scrollLine": "112"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1610057697,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1611258806832,
+    "read_only": false,
+    "read_only_alternatives": []
+}
