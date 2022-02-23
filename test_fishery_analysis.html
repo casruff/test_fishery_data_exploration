@@ -263,7 +263,8 @@ div.tocify {
 <hr />
 <div id="overview" class="section level1">
 <h1>Overview</h1>
-<p>This script fits log-normal Generalized Additive Models and ARIMA models to salmon run-size data with or without regression covariates. These models are then used to generate one-year-ahead forecasts. The data used to fit the models is split into “training” and “validation” sets to evaluate performance of the one-year-ahead forecasts, compare models, and develop weighted “ensemble” forecasts. The code repository used to generate this page and complete analyses can be found here: <a href="https://github.com/tbuehrens/Salmon_Forecast_Example"><strong>(link)</strong></a></p>
+<p>This script fits Generalized Additive Models to Skagit Steelhead Test Fishery Data with and without the Total Run Size as an offset. The best model without TRS as an offset includes a spline term for year, which attempts to explain the residual variance (e.g., due to interannual run size differences) when the TRS offset is removed. Therefore, this spline term may be considered somewhat analogous to the model’s ability to predict runsize based on the in-season test fishery data.</p>
+<p>The code repository used to generate this page and complete analyses can be found here: <a href="https://github.com/casruff/test_fishery_data_exploration"><strong>(link)</strong></a></p>
 </div>
 <div id="setup" class="section level1">
 <h1>Setup</h1>

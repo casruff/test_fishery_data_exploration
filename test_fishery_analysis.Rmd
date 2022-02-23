@@ -22,7 +22,9 @@ Last Updated `r format(Sys.time(), '%m/%d/%Y')`.
 
 
 # Overview
-This script fits log-normal Generalized Additive Models and ARIMA models to salmon run-size data with or without regression covariates. These models are then used to generate one-year-ahead forecasts. The data used to fit the models is split into "training" and "validation" sets to evaluate performance of the one-year-ahead forecasts, compare models, and develop weighted "ensemble" forecasts. The code repository used to generate this page and complete analyses can be found here: [**(link)**](https://github.com/tbuehrens/Salmon_Forecast_Example)
+This script fits Generalized Additive Models to Skagit Steelhead Test Fishery Data with and without the Total Run Size as an offset. The best model without TRS as an offset includes a spline term for year, which attempts to explain the residual variance (e.g., due to interannual run size differences) when the TRS offset is removed. Therefore, this spline term may be considered somewhat analogous to the model's ability to predict runsize based on the in-season test fishery data.
+
+The code repository used to generate this page and complete analyses can be found here: [**(link)**](https://github.com/casruff/test_fishery_data_exploration)
 
 # Setup
 All analyses require R software [**(link)**](https://cran.r-project.org/) (v3.4.3) for data retrieval, data processing, and summarizing model results. Here we configure R to perform our analysis and generate our outputs
@@ -218,3 +220,4 @@ model.sel(m1,m2,m3,m4,m1b)
 #what does year spline term look like?
 plot(m1b,select = 3,shade=T)
 ```
+
