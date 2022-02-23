@@ -18,14 +18,15 @@ yr_last <- 2020
 
 ## data file names
 ## 1. file with escapement data
-fn_tst <- "sthd_trs.csv"
+fn_trs <- "sthd_trs.csv"
 
 ## 2. file with age comp data
-fn_trs <- "skgt_sthd_tst_fsh.csv"
+fn_tst_fsh <- "skgt_sthd_tst_fsh.csv"
 
 
 ## read in data
-dat_tst_fsh <- read_csv(file.path(datadir,fn_tst))
+dat_trs <- read_csv(file.path(datadir,fn_trs))
+dat_tst_fsh <- read_csv(file.path(datadir,fn_tst_fsh))
 
 ## get flow data (currently using mainstem at mount vernon)
 ## flow gage ID
@@ -66,5 +67,6 @@ dat_flow$day <- as.integer(format(dat_flow$date,"%j"))
 dat_flow$month <- as.integer(format(dat_flow$date,"%m"))
 dat_flow <- dat_flow[,c("year","month","flow")]
 
+dat_tst_fsh
 
 
