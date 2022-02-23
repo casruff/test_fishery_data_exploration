@@ -166,6 +166,8 @@ model.sel(m1,m2,m3,m4,m5)
 summary(m3)
 plot(m3)
 gam.check(m3)
+plot(m3$y~ m3$fitted.values)
+abline(a=0,b=1)
 
 #best model removing offset of total run size, adding a year spline...this term should explain variance accounted for previously by offset term
 
@@ -209,7 +211,8 @@ model.sel(m1,m2,m3,m4)
 summary(m1)
 plot(m1)
 gam.check(m1)
-
+plot(m1$y~ m1$fitted.values)
+abline(a=0,b=1)
 #best model removing offset of total run size, adding a year spline...this term should explain variance accounted for previously by offset term
 
 m1b<-gam(SthdW ~  s(day) + s(site,bs="re") + s(year,k=7,bs="ps",m=1), offset = log(effort),  family = nb(theta = NULL, link = "log"),data=dat)
