@@ -64,6 +64,7 @@ packages_list<-c("tidyverse"
                  ,"lubridate"
                  ,"MuMIn"
                  ,"tidymv"
+                 ,"modelr"
                  # ,"rnoaa"
                  # ,"ncdf4"
                  # ,"ncdf4.helpers"
@@ -178,6 +179,24 @@ model.sel(m1,m2,m3,m4,m5,m3b)
 
 #what does year spline term look like?
 plot(m3b,select = 5,shade=T)
+
+#add a relative CPUE plot
+newdat<-expand.grid(day=seq(33,120,1),
+                    site="Cable",
+                    year=2014,
+                    set_num = 1,
+                    zl_flow = 0,
+                    effort = 1000,
+                    trs = 9334
+                    )%>%
+  as.tibble()%>%
+  add_predictions(m3,var="pred")%>%
+  mutate(pred = exp(pred + log(effort) + log(trs)))%>%
+  mutate(relative_CPUE = pred/max(pred))
+
+ggplot(newdat,aes(x=day,y=relative_CPUE))+
+  geom_line()+
+  ylim(0,1)
 ```
 
 # Analysis by date/location (pooling sets)
