@@ -141,7 +141,8 @@ dat<-dat_tst_fsh%>%
   left_join(dat_flow)%>%
   mutate(site=factor(site),
          zl_flow=scale(log(flow)),
-         effort = as.numeric(time_out-time_in)
+         effort = as.numeric(time_out-time_in),
+         lm_trs = log(mean(unique(trs)))
          )%>%
   filter(set_num < 3 )#%>%
   #group_by(year,day,site,flow)%>%
@@ -172,7 +173,10 @@ abline(a=0,b=1)
 
 #best model removing offset of total run size, adding a year spline...this term should explain variance accounted for previously by offset term
 
-m3b<-gam(SthdW ~  s(day) + s(site,bs="re") + s(zl_flow) + s(set_num,bs="re") + s(year,k=7,bs="ps",m=1), offset = log(effort),  family = nb(theta = NULL, link = "log"),data=dat)
+m3b<-gam(SthdW ~  s(day) + s(site,bs="re") + s(zl_flow) + s(set_num,bs="re") + s(year,k=7,bs="ps",m=1), offset = log(effort) + lm_trs,  family = nb(theta = NULL, link = "log"),data=dat)
+
+#model with year as factor
+# m3c<-gam(SthdW ~  s(day) + s(site,bs="re") + s(zl_flow) + s(set_num,bs="re") + as.factor(year), offset = log(effort) + lm_trs,  family = nb(theta = NULL, link = "log"),data=dat)
 
 
 model.sel(m1,m2,m3,m4,m5,m3b)
@@ -205,21 +209,27 @@ newdat<-dat_trs%>%
          effort = NA,
          zl_flow = NA,
          SthdW = NA,
-         )
+         )%>%
+  filter(year!=2018)
 
-preds_yr<-predict.gam(m3b, newdata=newdat, type = "iterms", exclude = c("s(day)","s(site)","s(zl_flow)","s(set_num)"), newdata.guaranteed=TRUE)
+preds_yr<-predict.gam(m3b, newdata=newdat, type = "terms", exclude = c("s(day)","s(site)","s(zl_flow)","s(set_num)"), newdata.guaranteed=TRUE, se.fit=T)
 
-preds<-exp(preds_yr[,1]) *  mean(dat_trs$trs) #multiply by mean or geomean?
+preds<-data.frame(mle=c(exp(preds_yr$fit) *  exp(unique(dat$lm_trs))),#multiply by mean or geomean?
+                  l95=c(exp(preds_yr$fit + 1.96 * preds_yr$se) *  exp(unique(dat$lm_trs))),
+                  u95=c(exp(preds_yr$fit - 1.96 * preds_yr$se) *  exp(unique(dat$lm_trs)))
+)
+
 
 newdat<-newdat%>%
   bind_cols(preds)
   
 
 ggplot(data=newdat,aes(x=year, y=trs))+
+  geom_ribbon(mapping=aes(x=year,ymin=l95,ymax=u95),fill="blue",color=NA,alpha=0.5)+
+  geom_line(mapping=aes(x=year,y=mle),color="blue")+
   geom_point(size=2)+
-  geom_point(mapping=aes(x=year,y=preds),size=1.3, color ="blue")+
-  geom_line(mapping=aes(x=year,y=preds))
-  
+  geom_point(mapping=aes(x=year,y=mle),size=1.3, color ="blue")
+
 ```
 
 # Analysis by date/location (pooling sets)
@@ -234,7 +244,8 @@ dat<-dat_tst_fsh%>%
   filter(set_num < 7)%>%
   group_by(year,day,site,zl_flow,trs)%>%
   summarise(SthdW = sum(SthdW),
-           effort = sum(effort)
+           effort = sum(effort),
+           lm_trs = log(mean(unique(trs)))
            )
   
 
@@ -257,7 +268,10 @@ plot(m1$y~ m1$fitted.values)
 abline(a=0,b=1)
 #best model removing offset of total run size, adding a year spline...this term should explain variance accounted for previously by offset term
 
-m1b<-gam(SthdW ~  s(day) + s(site,bs="re") + s(year,k=7,bs="ps",m=1), offset = log(effort),  family = nb(theta = NULL, link = "log"),data=dat)
+m1b<-gam(SthdW ~  s(day) + s(site,bs="re") + s(year,k=7,bs="ps",m=1), offset = log(effort) + lm_trs,  family = nb(theta = NULL, link = "log"),data=dat)
+
+#model with fixed effect for year
+# m1c<-gam(SthdW ~  s(day) + s(site,bs="re") + as.factor(year), offset = log(effort) + lm_trs,  family = nb(theta = NULL, link = "log"),data=dat)
 
 
 model.sel(m1,m2,m3,m4,m1b)
@@ -272,11 +286,15 @@ newdat<-dat_trs%>%
          effort = NA,
          zl_flow = NA,
          SthdW = NA,
-         )
+         )%>%
+  filter(year!=2018)
 
-preds_yr<-predict.gam(m1b, newdata=newdat, type = "iterms", exclude = c("s(day)","s(site)"), newdata.guaranteed=TRUE)
+preds_yr<-predict.gam(m1b, newdata=newdat, type = "iterms", exclude = c("s(day)","s(site)"), newdata.guaranteed=TRUE, se.fit=T)
 
-preds<-exp(preds_yr[,1]) *  mean(dat_trs$trs) #multiply by mean or geomean?
+preds<-data.frame(mle=c(exp(preds_yr$fit) *  exp(unique(dat$lm_trs))),#multiply by mean or geomean?
+                  l95=c(exp(preds_yr$fit + 1.96 * preds_yr$se) *  exp(unique(dat$lm_trs))),
+                  u95=c(exp(preds_yr$fit - 1.96 * preds_yr$se) *  exp(unique(dat$lm_trs)))
+)
 
 
 newdat<-newdat%>%
@@ -284,9 +302,12 @@ newdat<-newdat%>%
   
 
 ggplot(data=newdat,aes(x=year, y=trs))+
+  geom_ribbon(mapping=aes(x=year,ymin=l95,ymax=u95),fill="blue",color=NA,alpha=0.5)+
+  geom_line(mapping=aes(x=year,y=mle),color="blue")+
   geom_point(size=2)+
-  geom_point(mapping=aes(x=year,y=preds),size=1.3, color ="blue")+
-  geom_line(mapping=aes(x=year,y=preds))
+  geom_point(mapping=aes(x=year,y=mle),size=1.3, color ="blue")
+
+
   
 ```
 
