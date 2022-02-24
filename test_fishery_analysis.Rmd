@@ -197,6 +197,29 @@ newdat<-expand.grid(day=seq(33,120,1),
 ggplot(newdat,aes(x=day,y=relative_CPUE))+
   geom_line()+
   ylim(0,1)
+
+#what does model predict trs is each year?
+newdat<-dat_trs%>%
+  mutate(day=NA,
+         site = NA,
+         effort = NA,
+         zl_flow = NA,
+         SthdW = NA,
+         )
+
+preds_yr<-predict.gam(m3b, newdata=newdat, type = "iterms", exclude = c("s(day)","s(site)","s(zl_flow)","s(set_num)"), newdata.guaranteed=TRUE)
+
+preds<-exp(preds_yr[,1]) *  mean(dat_trs$trs) #multiply by mean or geomean?
+
+newdat<-newdat%>%
+  bind_cols(preds)
+  
+
+ggplot(data=newdat,aes(x=year, y=trs))+
+  geom_point(size=2)+
+  geom_point(mapping=aes(x=year,y=preds),size=1.3, color ="blue")+
+  geom_line(mapping=aes(x=year,y=preds))
+  
 ```
 
 # Analysis by date/location (pooling sets)
@@ -241,5 +264,29 @@ model.sel(m1,m2,m3,m4,m1b)
 
 #what does year spline term look like?
 plot(m1b,select = 3,shade=T)
+
+#what does model predict trs is each year?
+newdat<-dat_trs%>%
+  mutate(day=NA,
+         site = NA,
+         effort = NA,
+         zl_flow = NA,
+         SthdW = NA,
+         )
+
+preds_yr<-predict.gam(m1b, newdata=newdat, type = "iterms", exclude = c("s(day)","s(site)"), newdata.guaranteed=TRUE)
+
+preds<-exp(preds_yr[,1]) *  mean(dat_trs$trs) #multiply by mean or geomean?
+
+
+newdat<-newdat%>%
+  bind_cols(preds)
+  
+
+ggplot(data=newdat,aes(x=year, y=trs))+
+  geom_point(size=2)+
+  geom_point(mapping=aes(x=year,y=preds),size=1.3, color ="blue")+
+  geom_line(mapping=aes(x=year,y=preds))
+  
 ```
 
