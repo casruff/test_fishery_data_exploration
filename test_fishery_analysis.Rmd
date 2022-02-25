@@ -22,11 +22,11 @@ Last Updated `r format(Sys.time(), '%m/%d/%Y')`.
 
 
 # Overview
-This script fits Generalized Additive Models to Skagit Steelhead Test Fishery Data with and without the Total Run Size as an offset. The best model without TRS as an offset includes a spline term for year, which attempts to explain the residual variance (e.g., due to interannual run size differences) when the TRS offset is removed. Therefore, this spline term may be considered somewhat analogous to the model's ability to predict runsize based on the in-season test fishery data.
+This script fits Generalized Additive Models to Skagit Steelhead Test Fishery Data with and without the Total Run Size as an offset. The best model without TRS as an offset includes a spline term for year, which attempts to explain the residual variance (e.g., due to interannual run size differences) when the TRS offset is removed. Therefore, this spline term may be considered somewhat analogous to the model's ability to predict runsize based on the in-season test fishery data. A prediction of Total Run Size may be obtained by multiplying this fitted value of this year term (holding all other terms to zero) by the mean annual run size. Predictions from this approach, including 95%CI are compared with observed TRS, demonstrating the efficacy of using in-season test fishery data to estimate Total Run Size.
 
 The code repository used to generate this page and complete analyses can be found here: [**(link)**](https://github.com/casruff/test_fishery_data_exploration)
 
-# Setup
+## Setup
 All analyses require R software [**(link)**](https://cran.r-project.org/) (v3.4.3) for data retrieval, data processing, and summarizing model results. Here we configure R to perform our analysis and generate our outputs
 ```{r set_options, echo = TRUE, message = FALSE}
 options(width = 100)
@@ -75,7 +75,8 @@ packages_list<-c("tidyverse"
 install_or_load_pack(pack = packages_list)
 ```
 
-# User Inputs
+## User Inputs
+Here we will specify the years of analysis, identify data file names and the flow gauge to be used.
 ```{r user_inputs, message = FALSE, warning = FALSE,results = "show"}
 ## set data dir
 datadir <- here("data")
@@ -97,7 +98,8 @@ fn_tst_fsh <- "skgt_sthd_tst_fsh.csv"
 flow_site <- 12200500  
 ```
 
-# Load Data
+## Load Data
+In this section we will load 1) the Total Run Size data, 2) the Test Fishery Data, and 3) The flow data.
 ```{r load_data, message = FALSE, warning = FALSE,results = "show"}
 ## read total runsize data
 dat_trs <- read_csv(file.path(datadir,fn_trs))
@@ -134,7 +136,17 @@ dat_flow <-  read_tsv(flow_url,
 
 ```
 
-# Analysis by set (only using set 1 & 2)
+## Analysis by set (only using set 1 & 2)
+Here we will combine the three datasets, fit a series of gam models with spline terms for day of year, an interaction between site and day of year, and flow, and fit random effects for site and set number. Here the response variable is catch per per net set. Offset terms include the number of seconds per net set and the Total Run Size. Once a "best model" is fit, the best model is refit dropping the offset for Total Runsize and then used to predict total run size. Predictions are compared with observations. 
+
+Results shown include:
+1) the model selection table 
+2) the summary statistics for the best model
+3) plots of the spline terms on the link scale for the best model
+4) the "gam.check" plots for goodness of fit and GOF statistics table
+5) The model selection table including the best model re-fit without the TRS offset
+6) a plot of the predicted relative CPUE by day of year for an average year from the best model
+7) the best model's forecast of TRS compared with observations
 ```{r Analysis, message = FALSE, warning = FALSE,results = "show"}
 dat<-dat_tst_fsh%>%
   left_join(dat_trs)%>%
@@ -182,7 +194,7 @@ m3b<-gam(SthdW ~  s(day) + s(site,bs="re") + s(zl_flow) + s(set_num,bs="re") + s
 model.sel(m1,m2,m3,m4,m5,m3b)
 
 #what does year spline term look like?
-plot(m3b,select = 5,shade=T)
+# plot(m3b,select = 5,shade=T)
 
 #add a relative CPUE plot
 newdat<-expand.grid(day=seq(33,120,1),
@@ -232,7 +244,16 @@ ggplot(data=newdat,aes(x=year, y=trs))+
 
 ```
 
-# Analysis by date/location (pooling sets)
+## Analysis by date/location (pooling sets)
+Here we will combine the three datasets, fit a series of gam models with spline terms for day of year, an interaction between site and day of year, and flow, and fit random effects for site. Here the response variable is catch per day and location rather than per net set. Offset terms include the number of seconds per net set and the Total Run Size. Once a "best model" is fit, the best model is refit dropping the offset for Total Runsize and then used to predict total run size. Predictions are compared with observations.
+
+Results shown include:
+1) the model selection table 
+2) the summary statistics for the best model
+3) plots of the spline terms on the link scale for the best model
+4) the "gam.check" plots for goodness of fit and GOF statistics table
+5) The model selection table including the best model re-fit without the TRS offset
+6) the best model's forecast of TRS compared with observations
 ```{r Analysis_v2, message = FALSE, warning = FALSE,results = "show"}
 dat<-dat_tst_fsh%>%
   left_join(dat_trs)%>%
@@ -277,7 +298,7 @@ m1b<-gam(SthdW ~  s(day) + s(site,bs="re") + s(year,k=7,bs="ps",m=1), offset = l
 model.sel(m1,m2,m3,m4,m1b)
 
 #what does year spline term look like?
-plot(m1b,select = 3,shade=T)
+# plot(m1b,select = 3,shade=T)
 
 #what does model predict trs is each year?
 newdat<-dat_trs%>%
@@ -306,8 +327,5 @@ ggplot(data=newdat,aes(x=year, y=trs))+
   geom_line(mapping=aes(x=year,y=mle),color="blue")+
   geom_point(size=2)+
   geom_point(mapping=aes(x=year,y=mle),size=1.3, color ="blue")
-
-
-  
 ```
 
