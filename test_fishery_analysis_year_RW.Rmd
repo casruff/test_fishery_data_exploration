@@ -390,13 +390,14 @@ model<-"model
   
   #Likelihood
   for(i in 1:obs){
-    log_lambda[i] = mu + b1[site[i]] + b2[set_num[i]] + log(effort[i]) + b3[year[i]]-mean(b3[ylist[1:Y_obs]]) + resid[day[i]] 
+    log_lambda[i] = mu + b1[site[i]] + b2[set_num[i]] + log(effort[i]) + b3[year[i]] - mean(b3[1:Y]) + resid[day[i]] 
     p[i] <- r / (r + exp(log_lambda[i]))
     SthdW[i] ~ dnegbin(p[i], r)
   }
   
   #Priors
   sigma ~ dt(0,2.5^-2,1) T(0,)
+  sigma_Y ~ dt(0,2.5^-2,1) T(0,)
   sigma1 = sigma^2/(1-phi1^2)
   phi1 ~ dt(0,2.5^-2,1) T(-1,1)
   sigma_disp ~ dt(0,2.5^-2,1) T(0,)
@@ -412,15 +413,17 @@ model<-"model
   for(i in 2:netsets){
     b2[i] ~ dnorm(0,5^-2)
   }
-  for(i in 2:Y_obs){
-    b3[ylist[i]] ~ dnorm(0,2^-2)
+  for(i in 2:Y){
+    eps_y[i-1] ~ dnorm(0,1^-1)
+    b3[i] = b3[i-1] + eps_y[i-1] * sigma_Y 
   }
 }"
 
-write(model,"model.jags")  
+write(model,"model_RW.jags")  
 
 params=c(
   "sigma",
+  "sigma_Y",
   "phi1",
   "sigma_disp",
   "r",
@@ -434,14 +437,14 @@ params=c(
   "log_lambda"
 )
 
-if(!file.exists("fit.RDS")){
+if(!file.exists("fit_RW.RDS")){
   start<-Sys.time()
   print(start)
   fit<-jags.parallel(
     data=jagsdat,
     inits=NULL,
     parameters.to.save = params,
-    model.file = "model.jags",
+    model.file = "model_RW.jags",
     n.chains = 4,
     n.iter = 10000,
     n.burnin = 5000,
@@ -449,10 +452,10 @@ if(!file.exists("fit.RDS")){
   )
   stop<-Sys.time()
   print(stop-start)
-  write.csv(fit$BUGSoutput$summary,"summary.csv")
-  saveRDS(fit,"fit.RDS")
+  write.csv(fit$BUGSoutput$summary,"summary_RW.csv")
+  saveRDS(fit,"fit_RW.RDS")
 }else{
-  fit<-readRDS("fit.RDS")
+  fit<-readRDS("fit_RW.RDS")
 }
 
 
@@ -461,14 +464,17 @@ abundance<-tibble(melt(exp(fit$BUGSoutput$sims.list$b3 - apply(fit$BUGSoutput$si
   group_by(year)%>%
   summarise(abundance = quantile(abundance, c(0.025, 0.25, 0.5, 0.75,0.975)), q = c(0.025, 0.25, 0.5, 0.75,0.975))%>%
   pivot_wider(id_cols=year,names_from = q,values_from = abundance)%>%
-  bind_cols(dat%>%dplyr::select(year_real=year,trs)%>%group_by(year_real)%>%summarise(trs=first(trs)))%>%
+  #bind_cols(dat%>%dplyr::select(year_real=year,trs)%>%group_by(year_real)%>%summarise(trs=first(trs)))%>%
+  bind_cols(dat_trs%>%dplyr::select(year_real=year,trs)%>%group_by(year_real)%>%summarise(trs=first(trs)))%>%
   dplyr::select(!year)%>%
-  mutate(year= year_real + min(dat_tst_fsh$year)-1)
+  mutate(year = year_real)
 
 ggplot(abundance,aes(x=year,y=trs))+
   geom_ribbon(mapping = aes(x=year,ymin =`0.025`, ymax = `0.975`),alpha=0.25,fill="red")+
   geom_ribbon(mapping = aes(x=year,ymin =`0.25`, ymax = `0.75`),alpha=0.25,fill="red")+
   geom_line(mapping=aes(x=year,y=`0.5`),color="red")+
   geom_point()+
-  ylim(0,NA)
+  ylim(0,27500)
+ 
+
 ```
