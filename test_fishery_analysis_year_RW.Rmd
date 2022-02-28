@@ -241,7 +241,8 @@ ggplot(data=newdat,aes(x=year, y=trs))+
   geom_ribbon(mapping=aes(x=year,ymin=l95,ymax=u95),fill="blue",color=NA,alpha=0.5)+
   geom_line(mapping=aes(x=year,y=mle),color="blue")+
   geom_point(size=2)+
-  geom_point(mapping=aes(x=year,y=mle),size=1.3, color ="blue")
+  geom_point(mapping=aes(x=year,y=mle),size=1.3, color ="blue")+
+  ylim(0,NA)
 
 ```
 
@@ -327,7 +328,8 @@ ggplot(data=newdat,aes(x=year, y=trs))+
   geom_ribbon(mapping=aes(x=year,ymin=l95,ymax=u95),fill="blue",color=NA,alpha=0.5)+
   geom_line(mapping=aes(x=year,y=mle),color="blue")+
   geom_point(size=2)+
-  geom_point(mapping=aes(x=year,y=mle),size=1.3, color ="blue")
+  geom_point(mapping=aes(x=year,y=mle),size=1.3, color ="blue")+
+  ylim(0,NA)
 ```
 
 ## Trying out some count ARIMA models
@@ -462,7 +464,7 @@ if(!file.exists("fit_RW.RDS")){
 abundance<-tibble(melt(exp(fit$BUGSoutput$sims.list$b3 - apply(fit$BUGSoutput$sims.list$b3,2,mean) + unique(dat$lm_trs))))%>%
   rename(draw=Var1,year=Var2,abundance=value)%>%
   group_by(year)%>%
-  summarise(abundance = quantile(abundance, c(0.025, 0.25, 0.5, 0.75,0.975)), q = c(0.025, 0.25, 0.5, 0.75,0.975))%>%
+  summarise(abundance = quantile(abundance, c(0.025, 0.25, 0.5, 0.75, 0.975)), q = c(0.025, 0.25, 0.5, 0.75,0.975))%>%
   pivot_wider(id_cols=year,names_from = q,values_from = abundance)%>%
   #bind_cols(dat%>%dplyr::select(year_real=year,trs)%>%group_by(year_real)%>%summarise(trs=first(trs)))%>%
   bind_cols(dat_trs%>%dplyr::select(year_real=year,trs)%>%group_by(year_real)%>%summarise(trs=first(trs)))%>%
@@ -474,7 +476,6 @@ ggplot(abundance,aes(x=year,y=trs))+
   geom_ribbon(mapping = aes(x=year,ymin =`0.25`, ymax = `0.75`),alpha=0.25,fill="red")+
   geom_line(mapping=aes(x=year,y=`0.5`),color="red")+
   geom_point()+
-  ylim(0,27500)
- 
+  ylim(0,NA)
 
 ```
