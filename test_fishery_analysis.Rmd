@@ -400,7 +400,7 @@ model<-"model
   #Priors
   sigma ~ dt(0,2.5^-2,1) T(0,)
   sigma1 = sigma^2/(1-phi1^2)
-  phi1 ~ dt(0,2.5^-2,1) T(-1,1)
+  phi1 ~ dnorm(0,1^-2) T(-1,1)
   sigma_disp ~ dt(0,2.5^-2,1) T(0,)
   r = sigma_disp^-2 #negative binomial overdispersion parameter
   b1[1] = 0;
@@ -412,7 +412,7 @@ model<-"model
     b1[i] ~ dnorm(0,5^-2)
   }  
   for(i in 2:netsets){
-    b2[i] ~ dnorm(0,5^-2)
+    b2[i] ~ dnorm(0,5^-2) 
   }
   for(i in 2:Y_obs){
     b3[ylist[i]] ~ dnorm(0,2^-2)
