@@ -386,12 +386,12 @@ model<-"model
   #Process Model
   for(i in 2:S){
     eps[i-1] ~ dnorm(0,1^-1)
-    resid[i] = resid[i-1] + eps[i-1] * sigma^-2
+    resid[i] = resid[i-1] + eps[i-1] * sigma
   }
   
   #Likelihood
   for(i in 1:obs){
-    log_lambda[i] = mu + b1[site[i]] + b2[set_num[i]] + log(effort[i]) + b3[year[i]] - mean(b3[ylist[1:Y_obs]]) + resid[day[i]] - mean(resid[1:S])
+    log_lambda[i] = b1[site[i]] + b2[set_num[i]] + log(effort[i]) + b3[year[i]] + resid[day[i]]
     p[i] <- r / (r + exp(log_lambda[i]))
     SthdW[i] ~ dnegbin(p[i], r)
   }
@@ -403,8 +403,7 @@ model<-"model
   b1[1] = 0;
   b2[1] = 0;
   b3[1] = 0;
-  resid[1] = 0
-  mu ~ dnorm(0,10^-2)
+  resid[1] ~ dnorm(0,10^-2)
   for(i in 2:sites){
     b1[i] ~ dnorm(0,5^-2)
   }  
@@ -416,7 +415,7 @@ model<-"model
   }
 }"
 
-write(model,"model_v2.jags")  
+write(model,"jags/model_v3.jags")  
 
 params=c(
   "sigma",
@@ -433,25 +432,25 @@ params=c(
   "log_lambda"
 )
 
-if(!file.exists("fit_v2.RDS")){
+if(!file.exists("results/fit_v3.RDS")){
   start<-Sys.time()
   print(start)
   fit<-jags.parallel(
     data=jagsdat,
     inits=NULL,
     parameters.to.save = params,
-    model.file = "model_v2.jags",
+    model.file = "jags/model_v3.jags",
     n.chains = 4,
-    n.iter = 10000,
-    n.burnin = 5000,
+    n.iter = 2000,
+    n.burnin = 1000,
     n.thin = 1
   )
   stop<-Sys.time()
   print(stop-start)
-  write.csv(fit$BUGSoutput$summary,"summary_v2.csv")
-  saveRDS(fit,"fit_v2.RDS")
+  write.csv(fit$BUGSoutput$summary,"results/summary_v3.csv")
+  saveRDS(fit,"results/fit_v3.RDS")
 }else{
-  fit<-readRDS("fit_v2.RDS")
+  fit<-readRDS("results/fit_v3.RDS")
 }
 
 
