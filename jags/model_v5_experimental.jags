@@ -61,6 +61,6 @@ model
   # }
   #RW version of year effect
   for(i in 2:Y){
-    eps_Y[i] ~ dnorm(0,1^-2)
+    eps_Y[i-1] ~ dnorm(0,1^-2)
   }
 }
