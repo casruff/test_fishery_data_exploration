@@ -1,6 +1,6 @@
 ---
 title: Skagit Steelhead Test Fishery Data Exploration
-author: Casey Ruff (cruff@swinomish.nsn.us) & Thomas Buehrens (tbuehrens@dfw.wa.gov)
+author: Thomas Buehrens (tbuehrens@dfw.wa.gov) & Casey Ruff (cruff@swinomish.nsn.us)
 output:
   html_document:
     code_folding: hide
@@ -66,6 +66,7 @@ packages_list<-c("tidyverse"
                  ,"tidymv"
                  ,"modelr"
                  ,"R2jags"
+                 ,"kableExtra"
                  # ,"rnoaa"
                  # ,"ncdf4"
                  # ,"ncdf4.helpers"
@@ -249,6 +250,10 @@ ggplot(data=newdat,aes(x=year, y=trs))+
   geom_point(mapping=aes(x=year,y=mle),size=1.3, color ="blue")+
   ylim(0,NA)
 
+newdat%>%
+  dplyr::select(year,trs,mle,l95,u95)%>%
+  kbl(caption = "Table 1. Predicted vs. observed TRS",digits =0)%>%
+  kable_classic(full_width = F, html_font = "Cambria")
 ```
 
 ## Analysis by date/location (pooling sets)
@@ -340,10 +345,15 @@ ggplot(data=newdat,aes(x=year, y=trs))+
   geom_point(size=2)+
   geom_point(mapping=aes(x=year,y=mle),size=1.3, color ="blue")+
   ylim(0,NA)
+
+newdat%>%
+  dplyr::select(year,trs,mle,l95,u95)%>%
+  kbl(caption = "Table 2. Predicted vs. observed TRS",digits =0)%>%
+  kable_classic(full_width = F, html_font = "Cambria")
 ```
 
 ## Trying out some count ARIMA models
-```{r Analysis_v3, message = FALSE, warning = FALSE,results = "show"}
+```{r Analysis_v3, message=FALSE, warning=FALSE, results="show"}
 dat<-dat_tst_fsh%>%
   left_join(dat_trs)%>%
   left_join(dat_flow)%>%
@@ -357,11 +367,9 @@ dat<-dat_tst_fsh%>%
   mutate(year = year - min(year)  +1,
          day = day - min(day,na.rm = TRUE) + 1,
          period = (year-1) * max(day,na.rm = TRUE) + day
-         )
+         )%>%
+  filter(!is.na(day))
 
-  dat %>% filter(year == 2022) %>% head()
-
-  dat <- dat[-which(is.na(dat$day) %in% TRUE),]
 jagsdat<-list(
   S = max(dat$day,na.rm = TRUE) - min(dat$day, na.rm = TRUE) + 1,
   Y = max(dat$year) - min(dat$year) + 1,
@@ -483,4 +491,9 @@ ggplot(abundance,aes(x=year,y=trs))+
   geom_line(mapping=aes(x=year,y=`0.5`),color="red")+
   geom_point()+
   ylim(0,NA)
+
+abundance%>%
+  dplyr::select(year,trs,`0.025`,`0.25`, `0.5`,`0.75`,`0.975`)%>%
+  kbl(caption = "Table 3. Predicted vs. observed TRS",digits =0)%>%
+  kable_classic(full_width = F, html_font = "Cambria")
 ```
