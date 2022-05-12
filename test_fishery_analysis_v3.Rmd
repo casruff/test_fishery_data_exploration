@@ -384,7 +384,6 @@ jagsdat<-list(
   year = dat$year,
   day = dat$day,
   period = dat$period,
-  Y_obs = length(unique(dat$year)),
   ylist = unique(dat$year)
 )
 
@@ -531,11 +530,22 @@ jagsdat<-list(
   set_num = as.numeric(dat$set_num),
   effort = dat$effort/(60*60),
   lm_trs = dat$lm_trs,
-  obs = length(as.numeric(dat$rowname)),
-  SthdW = dat$SthdW,
-  year = dat$year,
-  day = dat$day,
-  period = dat$period,
+  ##====================================================
+  # run with these turned on to show in-season forecast
+  #=====================================================
+  obs = dat%>%filter(year<max(year))%>%nrow(),
+  SthdW = dat%>%dplyr::select(SthdW)%>%unlist(),
+  year = dat%>%dplyr::select(year)%>%unlist(),
+  day = dat%>%dplyr::select(day)%>%unlist(),
+  period = dat%>%dplyr::select(period)%>%unlist(),
+  ##====================================================
+  # run with these turned on to show pre-season forecast
+  #=====================================================
+  # obs = dat%>%filter(year<max(year))%>%nrow(),
+  # SthdW = dat%>%filter(year<max(year))%>%dplyr::select(SthdW)%>%unlist(),
+  # year = dat%>%filter(year<max(year))%>%dplyr::select(year)%>%unlist(),
+  # day = dat%>%filter(year<max(year))%>%dplyr::select(day)%>%unlist(),
+  # period = dat%>%filter(year<max(year))%>%dplyr::select(period)%>%unlist(),
   Y_obs = length(unique(dat$year)),
   ylist = unique(dat$year),
   log_trs_anom = dat%>%group_by(year)%>%summarise(trs=first(log(trs)))%>%dplyr::select(trs)%>%unlist()-unique(dat$lm_trs),
