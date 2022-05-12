@@ -44,6 +44,5 @@ model
   for(i in 1:(Y_obs-1)){
     b3[ylist[i]] = log_trs_anom[i]
   }
-  #b3[ylist[Y_obs]] ~ dnorm(mu_log_forcast_anom,sd_log_forcast_anom^-2)
-  b3[ylist[Y_obs]] ~ dnorm(0,10^-2)
+  b3[ylist[Y_obs]] ~ dnorm(mu_log_forcast_anom,sd_log_forcast_anom^-2)
 }
