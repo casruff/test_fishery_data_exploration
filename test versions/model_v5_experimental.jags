@@ -30,7 +30,7 @@ model
 
   #Likelihood
   for(i in 1:obs){
-    log_lambda[i] = b1[site[i]] + b2[set_num[i]] + log(effort[i]) + b3[year[i]] + resid[day[i]]
+    log_lambda[i] = b1[site[i]] + b2[set_num[i]] + log(effort[i]) + b3[year[i]] + resid[day[i]] ## maybe needs intercept?
     p[i] <- r / (r + exp(log_lambda[i]))
     SthdW[i] ~ dnegbin(p[i], r)
   }

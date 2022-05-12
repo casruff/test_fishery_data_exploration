@@ -32,7 +32,7 @@ model
   
   #Likelihood
   for(i in 1:obs){
-    log_lambda[i] = b1[site[i]] + b2[set_num[i]] + log(effort[i]) + b3[year[i]] + resid[day[i]]
+    log_lambda[i] = intercept + b1[site[i]] + b2[set_num[i]] + log(effort[i]) + b3[year[i]] + resid[day[i]]
     p[i] <- r / (r + exp(log_lambda[i]))
     SthdW[i] ~ dnegbin(p[i], r)
   }
@@ -47,6 +47,7 @@ model
   b2[1] = 0;
   b3[1] = 0;
   resid[1] = 0;
+  intercept ~ dnorm(0,10^-2)
   
   for(i in 2:sites){
     eps_S[i-1] ~ dnorm(0,1^-1)

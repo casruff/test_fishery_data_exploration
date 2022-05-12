@@ -22,7 +22,7 @@ model
   
   #Likelihood
   for(i in 1:obs){
-    log_lambda[i] = b1[site[i]] + b2[set_num[i]] + log(effort[i]) + b3[year[i]] + resid[day[i]]
+    log_lambda[i] = intercept + b1[site[i]] + b2[set_num[i]] + log(effort[i]) + b3[year[i]] + resid[day[i]]
     p[i] <- r / (r + exp(log_lambda[i]))
     SthdW[i] ~ dnegbin(p[i], r)
   }
@@ -31,6 +31,7 @@ model
   sigma ~ dt(0,2.5^-2,1) T(0,)
   sigma_disp ~ dt(0,2.5^-2,1) T(0,)
   r = sigma_disp^-2 #negative binomial overdispersion parameter
+  intercept ~ dnorm(0,10^-2)
   b1[1] = 0;
   b2[1] = 0;
   resid[1] = 0;
@@ -43,5 +44,6 @@ model
   for(i in 1:(Y_obs-1)){
     b3[ylist[i]] = log_trs_anom[i]
   }
-  b3[ylist[Y_obs]] ~ dnorm(mu_log_forcast_anom,sd_log_forcast_anom^-2)
+  #b3[ylist[Y_obs]] ~ dnorm(mu_log_forcast_anom,sd_log_forcast_anom^-2)
+  b3[ylist[Y_obs]] ~ dnorm(0,10^-2)
 }
