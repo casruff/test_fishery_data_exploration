@@ -221,11 +221,17 @@ model<-"model
   # SthdW wild steelhead catch
   # year year index for obs
   # ylist list of unique year indexes
+  # mu_log_forcast_anom log of preaseason forecast median minus lm_trs
+  # sd_log_forcast_anom sd(log(preseason forecast pdf minus lm_trs))
   
   #Process Model
   for(i in 2:S){
     eps[i-1] ~ dnorm(0,1^-1)
     resid[i] = resid[i-1] + eps[i-1] * sigma
+  }
+  #random effects{
+  for(i in 2:sites){
+    b1[i] = eps_site[i-1] * sigma_site
   }
   
   #Likelihood
@@ -237,6 +243,7 @@ model<-"model
   
   #Priors
   sigma ~ dt(0,2.5^-2,1) T(0,)
+  sigma_site ~ dt(0,2.5^-2,1) T(0,)
   sigma_disp ~ dt(0,2.5^-2,1) T(0,)
   r = sigma_disp^-2 #negative binomial overdispersion parameter
   intercept ~ dnorm(0,10^-2)
@@ -244,7 +251,7 @@ model<-"model
   b2[1] = 0;
   resid[1] = 0;
   for(i in 2:sites){
-    b1[i] ~ dnorm(0,5^-2)
+    eps_site[i-1] ~ dnorm(0,1^-1)
   }  
   for(i in 2:netsets){
     b2[i] ~ dnorm(0,5^-2) 
@@ -261,6 +268,7 @@ write(model,"jags/model_pre_season.jags")
 params=c(
   "sigma",
   "sigma_disp",
+  "sigma_site",
   "r",
   "p",
   "intercept",
@@ -269,6 +277,7 @@ params=c(
   "b3",
   "resid",
   "eps",
+  "eps_site",
   "log_lambda"
 )
 

@@ -19,6 +19,10 @@ model
     eps[i-1] ~ dnorm(0,1^-1)
     resid[i] = resid[i-1] + eps[i-1] * sigma
   }
+  #random effects{
+  for(i in 2:sites){
+    b1[i] = eps_site[i-1] * sigma_site
+  }
   
   #Likelihood
   for(i in 1:obs){
@@ -29,6 +33,7 @@ model
   
   #Priors
   sigma ~ dt(0,2.5^-2,1) T(0,)
+  sigma_site ~ dt(0,2.5^-2,1) T(0,)
   sigma_disp ~ dt(0,2.5^-2,1) T(0,)
   r = sigma_disp^-2 #negative binomial overdispersion parameter
   intercept ~ dnorm(0,10^-2)
@@ -36,7 +41,7 @@ model
   b2[1] = 0;
   resid[1] = 0;
   for(i in 2:sites){
-    b1[i] ~ dnorm(0,5^-2)
+    eps_site[i-1] ~ dnorm(0,1^-1)
   }  
   for(i in 2:netsets){
     b2[i] ~ dnorm(0,5^-2) 
