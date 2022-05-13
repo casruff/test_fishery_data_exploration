@@ -13,6 +13,8 @@ model
   # SthdW wild steelhead catch
   # year year index for obs
   # ylist list of unique year indexes
+  # mu_log_forcast_anom log of preaseason forecast median minus lm_trs
+  # sd_log_forcast_anom sd(log(preseason forecast pdf minus lm_trs))
   
   #Process Model
   for(i in 2:S){

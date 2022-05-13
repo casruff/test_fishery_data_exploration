@@ -376,7 +376,9 @@ dat_flow &lt;-  read_tsv(flow_url,
 <div id="arima-model-with-preseason-forecast" class="section level2">
 <h2>ARIMA model with preseason forecast</h2>
 <p>This model estimates the Total Run Size (TRS) by predicting test fishery catch using regression model with the following equation:</p>
-<p>catch ~ negative binomial ( exp(intercept + factor(site) + factor(set number) + random walk (day of year) + log(effort in seconds) + log(centered year effect), over-dispersion parameter)</p>
+<p>catch ~ negative binomial (prediction, over-dispersion parameter)</p>
+<p>where</p>
+<p>prediction = exp(intercept + random effect(site) + factor(set number) + random walk (day of year) + log(effort in seconds) + log(centered year effect))</p>
 <p>The log(centered year effect) is given as data for all but the final incomplete year where TRS is unknown. It is calculated as the log(TRS) - log(mean(TRS[1:final_year-1])). The log(centered year effect) for the final incomplete year is given a normally distributed prior by subtracting log(mean(TRS[1:final_year-1])) from the log of a set of mcmc draws from the preseason forecast probability density function and calculating the mean and the sd of the resulting set of mcmc draws. Thus the model produces exactly* the preseason forecast when no new ISU data is provided for the final year, and then as ISU data is added, progressively updates this pre-season forecast providing ISU estimates of TRS.</p>
 <p>*the model will not produce EXACTLY the preseason forecast with no ISU data. It is using a log-normal distribution to approximate the probability density function of the pre-season forecast, which is very good but inexact so actual forecasts with no ISU data may vary by 1-2% of the “true” preseason forecast.</p>
 <pre class="r"><code>dat&lt;-dat_tst_fsh%&gt;%
@@ -448,6 +450,8 @@ model&lt;-&quot;model
   # SthdW wild steelhead catch
   # year year index for obs
   # ylist list of unique year indexes
+  # mu_log_forcast_anom log of preaseason forecast median minus lm_trs
+  # sd_log_forcast_anom sd(log(preseason forecast pdf minus lm_trs))
   
   #Process Model
   for(i in 2:S){
@@ -525,10 +529,10 @@ if(!file.exists(&quot;results/fit_pre_season.RDS&quot;)){
   saveRDS(fit,&quot;results/fit_pre_season.RDS&quot;)
 }else{
   fit&lt;-readRDS(&quot;results/fit_pre_season.RDS&quot;)
-}</code></pre>
-<pre><code>## [1] &quot;2022-05-13 06:59:26 PDT&quot;
-## Time difference of 6.643737 mins</code></pre>
-<pre class="r"><code>abundance&lt;-tibble(melt(exp(fit$BUGSoutput$sims.list$b3 + unique(dat$lm_trs))))%&gt;%
+}
+
+
+abundance&lt;-tibble(melt(exp(fit$BUGSoutput$sims.list$b3 + unique(dat$lm_trs))))%&gt;%
   rename(draw=Var1,year=Var2,abundance=value)%&gt;%
   group_by(year)%&gt;%
   summarise(abundance = quantile(abundance, c(0.025, 0.25, 0.5, 0.75,0.975)), q = c(0.025, 0.25, 0.5, 0.75,0.975))%&gt;%

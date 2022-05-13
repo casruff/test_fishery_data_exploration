@@ -146,7 +146,11 @@ dat_flow <-  read_tsv(flow_url,
 ## ARIMA model with preseason forecast 
 This model estimates the Total Run Size (TRS) by predicting test fishery catch using regression model with the following equation:
 
-catch ~ negative binomial ( exp(intercept + factor(site) + factor(set number) + random walk (day of year) + log(effort in seconds) + log(centered year effect), over-dispersion parameter) 
+catch ~ negative binomial (prediction, over-dispersion parameter) 
+
+where
+
+prediction = exp(intercept + random effect(site) + factor(set number) + random walk (day of year) + log(effort in seconds) + log(centered year effect))
 
 The log(centered year effect) is given as data for all but the final incomplete year where TRS is unknown. It is calculated as the log(TRS) - log(mean(TRS[1:final_year-1])). The log(centered year effect) for the final incomplete year is given a normally distributed prior by subtracting log(mean(TRS[1:final_year-1])) from the log of a set of mcmc draws from the preseason forecast probability density function and calculating the mean and the sd of the resulting set of mcmc draws. Thus the model produces exactly* the preseason forecast when no new ISU data is provided for the final year, and then as ISU data is added, progressively updates this pre-season forecast providing ISU estimates of TRS.
 
