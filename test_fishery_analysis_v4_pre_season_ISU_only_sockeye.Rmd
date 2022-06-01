@@ -194,11 +194,12 @@ jagsdat<-list(
   set_num = as.numeric(dat$set_num),
   effort = dat$effort/(60*60),
   lm_trs = dat$lm_trs,
+  zl_flow = dat%>%dplyr::select(zl_flow)%>%unlist,
   ##====================================================
   # run with these turned on to show in-season forecast
   #=====================================================
   obs = dat%>%nrow(),
-  Sockeye = dat%>%dplyr::select(SockeyeC)%>%unlist(),
+  SockeyeC = dat%>%dplyr::select(SockeyeC)%>%unlist(),
   year = dat%>%dplyr::select(year)%>%unlist(),
   day = dat%>%dplyr::select(day)%>%unlist(),
   period = dat%>%dplyr::select(period)%>%unlist(),
@@ -237,42 +238,38 @@ model<-"model
   # sd_log_forcast_anom sd(log(preseason forecast pdf minus lm_trs))
   
   #Process Model
+  # for(i in 2:(S*Y)){
+  #   eps2[i-1] ~ dnorm(0,1^-1)
+  #   resid2[i] = resid2[i-1] + eps2[i-1] * sigma2
+  # }
+
   for(i in 2:S){
     eps[i-1] ~ dnorm(0,1^-1)
     resid[i] = resid[i-1] + eps[i-1] * sigma
   }
   
-  ## Removing site effect because only 1 site is fished
-  ##random effects{
-  #for(i in 2:sites){
-  #  b1[i] = eps_site[i-1] * sigma_site
-  #}
-  
   #Likelihood
   for(i in 1:obs){
-    #log_lambda[i] = intercept + b1[site[i]] + b2[set_num[i]] + log(effort[i]) + b3[year[i]] + resid[day[i]]
-    
-    log_lambda[i] = intercept + b2[set_num[i]] + log(effort[i]) + b3[year[i]] + resid[day[i]]
+    log_lambda[i] = intercept + b2[set_num[i]] + log(effort[i]) + b3[year[i]] + resid[day[i]] + b4 * zl_flow[i] #+ resid2[period[i]]
     p[i] <- r / (r + exp(log_lambda[i]))
     SockeyeC[i] ~ dnegbin(p[i], r)
   }
   
   #Priors
   sigma ~ dt(0,2.5^-2,1) T(0,)
-  #sigma_site ~ dt(0,2.5^-2,1) T(0,)
+  # sigma2 ~ dt(0,2.5^-2,1) T(0,)
+  sigma_set ~ dt(0,2.5^-2,1) T(0,)
   sigma_disp ~ dt(0,2.5^-2,1) T(0,)
   r = sigma_disp^-2 #negative binomial overdispersion parameter
   intercept ~ dnorm(0,10^-2)
-  #b1[1] = 0;
   b2[1] = 0;
   resid[1] = 0;
-  
-  #for(i in 2:sites){
-  #  eps_site[i-1] ~ dnorm(0,1^-1)
-  #}  
+  #resid2[1] = 0;
+  b4 ~ dnorm(0,5^-2);
   
   for(i in 2:netsets){
-    b2[i] ~ dnorm(0,5^-2) 
+    eps_site[i-1] ~ dnorm(0,1^-1)
+    b2[i] =  eps_site[i-1] * sigma_set
   }
   for(i in 1:(Y_obs-1)){
     b3[ylist[i]] = log_trs_anom[i]
@@ -314,10 +311,10 @@ if(!file.exists("results/fit_pre_season_sockeye.RDS")){
   )
   stop<-Sys.time()
   print(stop-start)
-  write.csv(fit$BUGSoutput$summary,"results/summary_pre_season.csv")
-  saveRDS(fit,"results/fit_pre_season.RDS")
+  write.csv(fit$BUGSoutput$summary,"results/summary_pre_season_sockeye.csv")
+  saveRDS(fit,"results/fit_pre_season_sockeye.RDS")
 }else{
-  fit<-readRDS("results/fit_pre_season.RDS")
+  fit<-readRDS("results/fit_pre_season_sockeye.RDS")
 }
 
 
@@ -359,5 +356,6 @@ ggplot(day_effect,aes(x=day,y=`0.5`))+
   geom_ribbon(mapping = aes(x=day,ymin =`0.25`, ymax = `0.75`),alpha=0.25,fill="red")+
   geom_line(mapping=aes(x=day,y=`0.5`),color="red")+
   geom_point()+
-  ylim(0,NA)
+  scale_y_log10()
+  #ylim(0.001,NA)
 ```
