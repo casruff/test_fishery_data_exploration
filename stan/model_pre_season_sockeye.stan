@@ -30,7 +30,7 @@ parameters{
   vector[(S*Y)-1] eps_period;
   real b4;
   real intercept;
-  real b3_est;
+  real b3_anom;
 }
 transformed parameters{
   vector[S] resid_day;
@@ -53,7 +53,7 @@ transformed parameters{
   for(i in 1:(Y_obs-1)){
     b3[ylist[i]] = log_trs_anom[i];
   }
-  b3[ylist[Y_obs]] = b3_est;
+  b3[ylist[Y_obs]] = b3_anom * sd_log_forcast_anom + mu_log_forcast_anom;
   for(i in 1:obs){
     log_lambda[i] = intercept + b2[set_num[i]] + log(effort[i]) + b3[year[i]] + resid_day[day[i]] + b4 * zl_flow[i] + resid_period[period[i]];
   }
@@ -72,7 +72,7 @@ model
   eps_day ~ std_normal();
   eps_set ~ std_normal();
   eps_period ~ std_normal();
-  b3_est ~ normal(mu_log_forcast_anom,sd_log_forcast_anom);
+  b3_anom ~ std_normal();// 
   //Likelihood
   SockeyeC ~ neg_binomial_2_log(log_lambda, 1/square(sigma_disp));
 }
