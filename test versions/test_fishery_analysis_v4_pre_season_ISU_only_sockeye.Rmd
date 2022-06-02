@@ -305,8 +305,8 @@ if(!file.exists("results/fit_pre_season_sockeye.RDS")){
     parameters.to.save = params,
     model.file = "jags/model_pre_season_sockeye.jags",
     n.chains = 4,
-    n.iter = 2000,
-    n.burnin = 1000,
+    n.iter = 30000,
+    n.burnin = 10000,
     n.thin = 1
   )
   stop<-Sys.time()
