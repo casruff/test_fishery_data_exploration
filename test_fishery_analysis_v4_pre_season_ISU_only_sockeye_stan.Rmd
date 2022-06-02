@@ -177,7 +177,14 @@ forecast <- read_csv(file.path(datadir,"sockeyeforecast.csv"))%>%
   mutate(log_F=log(Estimate),
          log_F_anom = log_F - dat_trs%>%filter(!is.na(trs))%>%mutate(ml_trs=mean(log(trs)))%>%dplyr::select(ml_trs)%>%unlist()
   )
-  
+
+ggplot(dat%>%
+         group_by(year,day,date)%>%
+         summarise(effort=sum(effort),SockeyeC=sum(SockeyeC))
+       ,aes(x=date,y=SockeyeC,group=factor(year)))+
+  facet_wrap(~year,ncol=1,scales="free_x")+
+  geom_line()+
+  geom_point()  
 
 standat<-list(
   S = max(dat$day,na.rm = TRUE) - min(dat$day, na.rm = TRUE) + 1,
