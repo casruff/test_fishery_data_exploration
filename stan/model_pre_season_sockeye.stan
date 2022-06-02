@@ -53,7 +53,7 @@ transformed parameters{
   for(i in 1:(Y_obs-1)){
     b3[ylist[i]] = log_trs_anom[i];
   }
-  b3[ylist[Y_obs]] = b3_anom * sd_log_forcast_anom + mu_log_forcast_anom;
+  b3[ylist[Y_obs]] = b3_anom * sd_log_forcast_anom[ylist[Y_obs]] + mu_log_forcast_anom[ylist[Y_obs]];
   for(i in 1:obs){
     log_lambda[i] = intercept + b2[set_num[i]] + log(effort[i]) + b3[year[i]] + resid_day[day[i]] + b4 * zl_flow[i] + resid_period[period[i]];
   }
