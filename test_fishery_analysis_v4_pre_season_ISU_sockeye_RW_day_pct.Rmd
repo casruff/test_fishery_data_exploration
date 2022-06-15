@@ -69,6 +69,7 @@ packages_list<-c("tidyverse"
                  ,"modelr"
                  ,"R2jags"
                  ,"kableExtra"
+                 ,"rstan"
                  # ,"rnoaa"
                  # ,"ncdf4"
                  # ,"ncdf4.helpers"
@@ -150,7 +151,7 @@ catch ~ negative binomial (prediction, over-dispersion parameter)
 
 where
 
-prediction = exp(intercept + random effect(site) + factor(set number) + random walk (day of year) + log(effort in seconds) + log(centered year effect))
+prediction = exp(intercept + random effect(site) + factor(set number) + annually differenced random walk(day of year) + log(effort in seconds) + log(centered year effect))
 
 The log(centered year effect) is given as data for all but the final incomplete year where TRS is unknown. It is calculated as the log(TRS) - log(mean(TRS[1:final_year-1])). The log(centered year effect) for the final incomplete year is given a normally distributed prior by subtracting log(mean(TRS[1:final_year-1])) from the log of a set of mcmc draws from the preseason forecast probability density function and calculating the mean and the sd of the resulting set of mcmc draws. Thus the model produces exactly* the preseason forecast when no new ISU data is provided for the final year, and then as ISU data is added, progressively updates this pre-season forecast providing ISU estimates of TRS.
 
@@ -162,7 +163,6 @@ dat<-dat_tst_fsh%>%
   mutate(site=factor(site),
          zl_flow=scale(log(flow)),
          effort = as.numeric(time_out-time_in)*60*60,
-         lm_trs = log(mean(unique(trs),na.rm = TRUE))
          )%>%
   filter(set_num < 10 )%>%
   add_rownames()%>%
@@ -172,20 +172,21 @@ dat<-dat_tst_fsh%>%
          )%>%
   filter(!is.na(day))
 
-# forecast<-read_csv("https://raw.githubusercontent.com/tbuehrens/Skagit-River-Steelhead-Forecast/master/analysis/cache/ensemble_forecast_posterior.csv")%>% mutate(log_F=log(ensemble_forecast_posterior),
-#          log_F_anom = log_F - unique(dat$lm_trs)
-#          )
-
-
-write.csv(dat,"sockeye_test_data.csv")
-
 
 forecast <- read_csv(file.path(datadir,"sockeyeforecast.csv"))%>% 
   mutate(log_F=log(Estimate),
-         log_F_anom = log_F - unique(dat$lm_trs))
-  
+         log_F_anom = log_F - dat_trs%>%filter(!is.na(trs))%>%mutate(ml_trs=mean(log(trs)))%>%dplyr::select(ml_trs)%>%unlist()
+  )
 
-jagsdat<-list(
+# ggplot(dat%>%
+#          group_by(year,day,date)%>%
+#          summarise(effort=sum(effort),SockeyeC=sum(SockeyeC))
+#        ,aes(x=date,y=SockeyeC,group=factor(year)))+
+#   facet_wrap(~year,ncol=1,scales="free_x")+
+#   geom_line()+
+#   geom_point()  
+
+standat<-list(
   S = max(dat$day,na.rm = TRUE) - min(dat$day, na.rm = TRUE) + 1,
   Y = max(dat$year) - min(dat$year) + 1,
   #sites = length(unique(dat$site)),
@@ -193,16 +194,15 @@ jagsdat<-list(
   #site = as.numeric(dat$site),
   set_num = as.numeric(dat$set_num),
   effort = dat$effort/(60*60),
-  lm_trs = dat$lm_trs,
-  zl_flow = dat%>%dplyr::select(zl_flow)%>%unlist,
+  zl_flow = dat%>%ungroup()%>%dplyr::select(zl_flow)%>%unlist,
   ##====================================================
   # run with these turned on to show in-season forecast
   #=====================================================
   obs = dat%>%nrow(),
-  SockeyeC = dat%>%dplyr::select(SockeyeC)%>%unlist(),
-  year = dat%>%dplyr::select(year)%>%unlist(),
-  day = dat%>%dplyr::select(day)%>%unlist(),
-  period = dat%>%dplyr::select(period)%>%unlist(),
+  SockeyeC = dat%>%ungroup()%>%dplyr::select(SockeyeC)%>%unlist(),
+  year = dat%>%ungroup()%>%dplyr::select(year)%>%unlist(),
+  day = dat%>%ungroup()%>%dplyr::select(day)%>%unlist(),
+  period = dat%>%ungroup()%>%dplyr::select(period)%>%unlist(),
   ##====================================================
   # run with these turned on to show pre-season forecast
   #=====================================================
@@ -214,124 +214,50 @@ jagsdat<-list(
   #======================================================
   Y_obs = length(unique(dat$year)),
   ylist = unique(dat$year),
-  log_trs_anom = dat%>%group_by(year)%>%summarise(trs=first(log(trs)))%>%dplyr::select(trs)%>%unlist()-unique(dat$lm_trs),
+  log_trs_anom = dat_trs%>%filter(!is.na(trs))%>%mutate(log_trs_anom =log(trs) - mean(log(trs)))%>%dplyr::select(log_trs_anom)%>%unlist(),
   mu_log_forcast_anom = mean(forecast$log_F_anom),
   sd_log_forcast_anom = sd(forecast$log_F_anom)
 )
 
-model<-"model
-{
-  #Data
-  # S number of periods in season
-  # Y number of years
-  # sites number of sites
-  # netsets max number of net sets
-  # site site for each obs
-  # set_num set number for each obs
-  # effort effort in hrs
-  # lm_trs log(mean(total run size)) 
-  # obs  observation number
-  # sockeyeC sockeye catch
-  # year year index for obs
-  # ylist list of unique year indexes
-  # mu_log_forcast_anom log of preaseason forecast median minus lm_trs
-  # sd_log_forcast_anom sd(log(preseason forecast pdf minus lm_trs))
-  
-  #Process Model
-  # for(i in 2:(S*Y)){
-  #   eps2[i-1] ~ dnorm(0,1^-1)
-  #   resid2[i] = resid2[i-1] + eps2[i-1] * sigma2
-  # }
 
-  for(i in 2:S){
-    eps[i-1] ~ dnorm(0,1^-1)
-    resid[i] = resid[i-1] + eps[i-1] * sigma
-  }
-  
-  #Likelihood
-  for(i in 1:obs){
-    log_lambda[i] = intercept + b2[set_num[i]] + log(effort[i]) + b3[year[i]] + resid[day[i]] + b4 * zl_flow[i] #+ resid2[period[i]]
-    p[i] <- r / (r + exp(log_lambda[i]))
-    SockeyeC[i] ~ dnegbin(p[i], r)
-  }
-  
-  #Priors
-  sigma ~ dt(0,2.5^-2,1) T(0,)
-  # sigma2 ~ dt(0,2.5^-2,1) T(0,)
-  sigma_set ~ dt(0,2.5^-2,1) T(0,)
-  sigma_disp ~ dt(0,2.5^-2,1) T(0,)
-  r = sigma_disp^-2 #negative binomial overdispersion parameter
-  intercept ~ dnorm(0,10^-2)
-  b2[1] = 0;
-  resid[1] = 0;
-  #resid2[1] = 0;
-  b4 ~ dnorm(0,5^-2);
-  
-  for(i in 2:netsets){
-    eps_site[i-1] ~ dnorm(0,1^-1)
-    b2[i] =  eps_site[i-1] * sigma_set
-  }
-  for(i in 1:(Y_obs-1)){
-    b3[ylist[i]] = log_trs_anom[i]
-  }
-  b3[ylist[Y_obs]] ~ dnorm(mu_log_forcast_anom,sd_log_forcast_anom^-2)
-}"
-
-write(model,"jags/model_pre_season_sockeye.jags")  
-
-  
-params=c(
-  "sigma",
-  "sigma_disp",
-  #"sigma_site",
-  "r",
-  "p",
-  "intercept",
-  #"b1",
-  "b2",
-  "b3",
-  "resid",
-  "eps",
-  #"eps_site",
-  "log_lambda"
-)
-
-if(!file.exists("results/fit_pre_season_sockeye.RDS")){
+if(!file.exists("results/fit_pre_season_sockeye_stan_RW_day_pct.RDS")){
   start<-Sys.time()
   print(start)
-  fit<-jags.parallel(
-    data=jagsdat,
-    inits=NULL,
-    parameters.to.save = params,
-    model.file = "jags/model_pre_season_sockeye.jags",
-    n.chains = 4,
-    n.iter = 30000,
-    n.burnin = 10000,
-    n.thin = 1
+  model<-stan_model("stan/model_pre_season_sockeye_RW_day_pct.stan")
+  fit<-sampling(
+    object=model,
+    data=standat,
+    cores = 4,
+    chains=4,
+    iter=200,
+    warmup = 100,
+    thin = 1,
   )
   stop<-Sys.time()
   print(stop-start)
-  write.csv(fit$BUGSoutput$summary,"results/summary_pre_season_sockeye.csv")
-  saveRDS(fit,"results/fit_pre_season_sockeye.RDS")
+  write.csv(summary(fit)$summary,"results/summary_pre_season_sockeye_stan_RW_day_pct.csv")
+  saveRDS(fit,"results/fit_pre_season_sockeye_stan_RW_day_pct.RDS")
 }else{
-  fit<-readRDS("results/fit_pre_season_sockeye.RDS")
+  fit<-readRDS("results/fit_pre_season_sockeye_stan_RW_day_pct.RDS")
 }
 
+ml_trs=dat_trs%>%filter(!is.na(trs))%>%summarise(ml_trs = mean(log(trs)))%>%dplyr::select(ml_trs)%>%unlist()
 
-abundance<-tibble(melt(exp(fit$BUGSoutput$sims.list$b3 + unique(dat$lm_trs))))%>%
-  rename(draw=Var1,year=Var2,abundance=value)%>%
+abundance<-tibble(melt(extract(fit)$b3))%>%
+  dplyr::rename(draw=iterations,year=Var2,value=value)%>%
+  mutate(abundance = exp(value + ml_trs))%>%
   group_by(year)%>%
   summarise(abundance = quantile(abundance, c(0.025, 0.25, 0.5, 0.75,0.975)), q = c(0.025, 0.25, 0.5, 0.75,0.975))%>%
   pivot_wider(id_cols=year,names_from = q,values_from = abundance)%>%
-  bind_cols(dat%>%dplyr::select(year_real=year,trs)%>%group_by(year_real)%>%summarise(trs=first(trs)))%>%
-  dplyr::select(!year)%>%
-  mutate(year= year_real + min(dat_tst_fsh$year)-1)
+  mutate(year= year + min(dat_tst_fsh$year)-1)%>%
+  left_join(dat_trs%>%dplyr::select(year=year,trs)%>%group_by(year)%>%summarise(trs=first(trs)))
 
 ggplot(abundance,aes(x=year,y=trs))+
   geom_ribbon(mapping = aes(x=year,ymin =`0.025`, ymax = `0.975`),alpha=0.25,fill="red")+
   geom_ribbon(mapping = aes(x=year,ymin =`0.25`, ymax = `0.75`),alpha=0.25,fill="red")+
   geom_line(mapping=aes(x=year,y=`0.5`),color="red")+
   geom_point()+
+  geom_point(mapping=aes(x=max(abundance$year),y=median(forecast$Estimate)),color="red",fill="red")+
   ylim(0,NA)
 
 abundance%>%
@@ -342,20 +268,22 @@ abundance%>%
   kbl(caption = "Table 1. In-Season-Update of Predicted TRS",digits =0)%>%
   kable_classic(full_width = F, html_font = "Cambria")
 
-day_effect<-tibble(melt(exp(fit$BUGSoutput$sims.list$resid)))%>%
-  rename(draw=Var1,day=Var2,day_effect=value)%>%
-  group_by(day)%>%
-  mutate(day=day+min(yday(dat$date))-1)%>%
+day_effect<-tibble(melt(extract(fit)$day_pct))%>%
+  rename(draw=iterations,year=Var2,day=Var3,day_effect=value)%>%
+  group_by(year,day)%>%
+  mutate(year= year + min(dat_tst_fsh$year)-1, day=day+min(yday(dat$date))-1)%>%
   summarise(day_effect = quantile(day_effect, c(0.025, 0.25, 0.5, 0.75,0.975)), q = c(0.025, 0.25, 0.5, 0.75,0.975))%>%
-  pivot_wider(id_cols=day,names_from = q,values_from = day_effect)
+  pivot_wider(id_cols=c(year,day),names_from = q,values_from = day_effect)
 
-ggplot(day_effect,aes(x=day,y=`0.5`))+
-  ylab("Day of Year Effect (relative to first day of test fishery")+
+ggplot(day_effect,aes(x=day,y=`0.5`,group=year))+
+  ylab("% of season total run passing test fishery by day")+
   xlab("Day of Year")+
+  facet_wrap(~year)+
   geom_ribbon(mapping = aes(x=day,ymin =`0.025`, ymax = `0.975`),alpha=0.25,fill="red")+
   geom_ribbon(mapping = aes(x=day,ymin =`0.25`, ymax = `0.75`),alpha=0.25,fill="red")+
   geom_line(mapping=aes(x=day,y=`0.5`),color="red")+
   geom_point()+
-  scale_y_log10()
-  #ylim(0.001,NA)
+  scale_y_log10(labels = scales::percent, limits=c(0.0001,.3))
+  #scale_y_continuous(labels = scales::percent, limits=c(0.0001,.50))
+  #ylim(0.001,.2)
 ```
