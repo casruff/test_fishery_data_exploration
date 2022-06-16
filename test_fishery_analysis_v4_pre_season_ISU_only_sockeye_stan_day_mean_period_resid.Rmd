@@ -178,13 +178,13 @@ forecast <- read_csv(file.path(datadir,"sockeyeforecast.csv"))%>%
          log_F_anom = log_F - dat_trs%>%filter(!is.na(trs))%>%mutate(ml_trs=mean(log(trs)))%>%dplyr::select(ml_trs)%>%unlist()
   )
 
-ggplot(dat%>%
-         group_by(year,day,date)%>%
-         summarise(effort=sum(effort),SockeyeC=sum(SockeyeC))
-       ,aes(x=date,y=SockeyeC,group=factor(year)))+
-  facet_wrap(~year,ncol=1,scales="free_x")+
-  geom_line()+
-  geom_point()  
+# ggplot(dat%>%
+#          group_by(year,day,date)%>%
+#          summarise(effort=sum(effort),SockeyeC=sum(SockeyeC))
+#        ,aes(x=date,y=SockeyeC,group=factor(year)))+
+#   facet_wrap(~year,ncol=1,scales="free_x")+
+#   geom_line()+
+#   geom_point()  
 
 standat<-list(
   S = max(dat$day,na.rm = TRUE) - min(dat$day, na.rm = TRUE) + 1,
@@ -229,8 +229,8 @@ if(!file.exists("results/fit_pre_season_sockeye_stan_day_mean_period_resid.RDS")
     data=standat,
     cores = 4,
     chains=4,
-    iter=200,
-    warmup = 100,
+    iter=1000,
+    warmup = 500,
     thin = 1,
   )
   stop<-Sys.time()
@@ -276,7 +276,7 @@ day_effect<-tibble(melt(extract(fit)$day_pct))%>%
   pivot_wider(id_cols=c(year,day),names_from = q,values_from = day_effect)
 
 ggplot(day_effect,aes(x=day,y=`0.5`,group=year))+
-  ylab("Day of Year Effect (% of test fishery season total passing fishery in that day)")+
+  ylab("% of season total run passing the test fishery by day")+
   xlab("Day of Year")+
   facet_wrap(~year)+
   geom_ribbon(mapping = aes(x=day,ymin =`0.025`, ymax = `0.975`),alpha=0.25,fill="red")+
@@ -287,17 +287,17 @@ ggplot(day_effect,aes(x=day,y=`0.5`,group=year))+
   #scale_y_continuous(labels = scales::percent, limits=c(0.0001,.50))
   #ylim(0.001,.2)
 
-day_resid<-tibble(melt(extract(fit)$resid_period))%>%
-  rename(draw=iterations,period=Var2,day_resid=value)%>%
-  group_by(period)%>%
-  summarise(day_resid= quantile(day_resid, c(0.025, 0.25, 0.5, 0.75,0.975)), q = c(0.025, 0.25, 0.5, 0.75,0.975))%>%
-  pivot_wider(id_cols=c(period),names_from = q,values_from = day_resid)
-  
-ggplot(day_resid,aes(x=period,y=`0.5`))+
-  ylab("Day of Year Effect (% of test fishery season total passing fishery in that day)")+
-  xlab("Day of Year")+
-  geom_ribbon(mapping = aes(x=period,ymin =`0.025`, ymax = `0.975`),alpha=0.25,fill="red")+
-  geom_ribbon(mapping = aes(x=period,ymin =`0.25`, ymax = `0.75`),alpha=0.25,fill="red")+
-  geom_line(mapping=aes(x=period,y=`0.5`),color="red")+
-  geom_point()
+# day_resid<-tibble(melt(extract(fit)$resid_period))%>%
+#   rename(draw=iterations,period=Var2,day_resid=value)%>%
+#   group_by(period)%>%
+#   summarise(day_resid= quantile(day_resid, c(0.025, 0.25, 0.5, 0.75,0.975)), q = c(0.025, 0.25, 0.5, 0.75,0.975))%>%
+#   pivot_wider(id_cols=c(period),names_from = q,values_from = day_resid)
+#   
+# ggplot(day_resid,aes(x=period,y=`0.5`))+
+#   ylab("residual")+
+#   xlab("Day of Year")+
+#   geom_ribbon(mapping = aes(x=period,ymin =`0.025`, ymax = `0.975`),alpha=0.25,fill="red")+
+#   geom_ribbon(mapping = aes(x=period,ymin =`0.25`, ymax = `0.75`),alpha=0.25,fill="red")+
+#   geom_line(mapping=aes(x=period,y=`0.5`),color="red")+
+#   geom_point()
 ```
