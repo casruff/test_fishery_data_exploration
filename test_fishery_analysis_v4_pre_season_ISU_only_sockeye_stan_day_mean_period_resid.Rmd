@@ -165,7 +165,7 @@ dat<-dat_tst_fsh%>%
          effort = as.numeric(time_out-time_in)*60*60,
          )%>%
   filter(set_num < 10 )%>%
-  add_rownames()%>%
+  rownames_to_column()%>%
   mutate(year = year - min(year) + 1,
          day = day - min(day,na.rm = TRUE) + 1,
          period = (year-1) * max(day,na.rm = TRUE) + day
@@ -174,8 +174,11 @@ dat<-dat_tst_fsh%>%
 
 
 forecast <- read_csv(file.path(datadir,"sockeyeforecast.csv"))%>% 
-  mutate(log_F=log(Estimate),
-         log_F_anom = log_F - dat_trs%>%filter(!is.na(trs))%>%mutate(ml_trs=mean(log(trs)))%>%dplyr::select(ml_trs)%>%unlist()
+  mutate(log_F = log(Estimate),
+         log_F_anom = log_F - dat_trs%>%filter(!is.na(trs) & year < max(year))%>%summarise(ml_trs=mean(log(trs)))%>%dplyr::select(ml_trs)%>%unlist()
+  )%>%summarise(
+     mu_log_forcast_anom = mean(log_F_anom),
+     sd_log_forcast_anom = sd(log_F_anom)
   )
 
 # ggplot(dat%>%
@@ -193,7 +196,7 @@ standat<-list(
   netsets = length(unique(dat$set_num)),
   #site = as.numeric(dat$site),
   set_num = as.numeric(dat$set_num),
-  effort = dat$effort/(60*60),
+  effort = dat$effort/(60*60),#convert effort to hours
   zl_flow = dat%>%ungroup()%>%dplyr::select(zl_flow)%>%unlist,
   ##====================================================
   # run with these turned on to show in-season forecast
@@ -214,9 +217,9 @@ standat<-list(
   #======================================================
   Y_obs = length(unique(dat$year)),
   ylist = unique(dat$year),
-  log_trs_anom = dat_trs%>%filter(!is.na(trs))%>%mutate(log_trs_anom =log(trs) - mean(log(trs)))%>%dplyr::select(log_trs_anom)%>%unlist(),
-  mu_log_forcast_anom = mean(forecast$log_F_anom),
-  sd_log_forcast_anom = sd(forecast$log_F_anom)
+  log_trs_anom = dat_trs%>%filter(!is.na(trs) & year < max(year))%>%mutate(log_trs_anom =log(trs) - mean(log(trs)))%>%dplyr::select(log_trs_anom)%>%unlist(),
+  mu_log_forcast_anom = forecast$mu_log_forcast_anom,
+  sd_log_forcast_anom = forecast$sd_log_forcast_anom
 )
 
 
@@ -232,6 +235,9 @@ if(!file.exists("results/fit_pre_season_sockeye_stan_day_mean_period_resid.RDS")
     iter=1000,
     warmup = 500,
     thin = 1,
+    control = list(
+      adapt_delta = 0.95
+    )
   )
   stop<-Sys.time()
   print(stop-start)
@@ -241,7 +247,7 @@ if(!file.exists("results/fit_pre_season_sockeye_stan_day_mean_period_resid.RDS")
   fit<-readRDS("results/fit_pre_season_sockeye_stan_day_mean_period_resid.RDS")
 }
 
-ml_trs=dat_trs%>%filter(!is.na(trs))%>%summarise(ml_trs = mean(log(trs)))%>%dplyr::select(ml_trs)%>%unlist()
+ml_trs=dat_trs%>%filter(!is.na(trs) & year < max(year))%>%summarise(ml_trs = mean(log(trs)))%>%dplyr::select(ml_trs)%>%unlist()
 
 abundance<-tibble(melt(extract(fit)$b3))%>%
   dplyr::rename(draw=iterations,year=Var2,value=value)%>%
@@ -257,7 +263,6 @@ ggplot(abundance,aes(x=year,y=trs))+
   geom_ribbon(mapping = aes(x=year,ymin =`0.25`, ymax = `0.75`),alpha=0.25,fill="red")+
   geom_line(mapping=aes(x=year,y=`0.5`),color="red")+
   geom_point()+
-  geom_point(mapping=aes(x=max(abundance$year),y=median(forecast$Estimate)),color="red",fill="red")+
   ylim(0,NA)
 
 abundance%>%

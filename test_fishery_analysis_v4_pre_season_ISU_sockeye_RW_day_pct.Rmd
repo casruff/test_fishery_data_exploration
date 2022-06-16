@@ -174,9 +174,13 @@ dat<-dat_tst_fsh%>%
 
 
 forecast <- read_csv(file.path(datadir,"sockeyeforecast.csv"))%>% 
-  mutate(log_F=log(Estimate),
-         log_F_anom = log_F - dat_trs%>%filter(!is.na(trs))%>%mutate(ml_trs=mean(log(trs)))%>%dplyr::select(ml_trs)%>%unlist()
+  mutate(log_F = log(Estimate),
+         log_F_anom = log_F - dat_trs%>%filter(!is.na(trs) & year < max(year))%>%summarise(ml_trs=mean(log(trs)))%>%dplyr::select(ml_trs)%>%unlist()
+  )%>%summarise(
+     mu_log_forcast_anom = mean(log_F_anom),
+     sd_log_forcast_anom = sd(log_F_anom)
   )
+
 
 # ggplot(dat%>%
 #          group_by(year,day,date)%>%
@@ -214,9 +218,9 @@ standat<-list(
   #======================================================
   Y_obs = length(unique(dat$year)),
   ylist = unique(dat$year),
-  log_trs_anom = dat_trs%>%filter(!is.na(trs))%>%mutate(log_trs_anom =log(trs) - mean(log(trs)))%>%dplyr::select(log_trs_anom)%>%unlist(),
-  mu_log_forcast_anom = mean(forecast$log_F_anom),
-  sd_log_forcast_anom = sd(forecast$log_F_anom)
+  log_trs_anom = dat_trs%>%filter(!is.na(trs) & year < max(year))%>%mutate(log_trs_anom =log(trs) - mean(log(trs)))%>%dplyr::select(log_trs_anom)%>%unlist(),
+  mu_log_forcast_anom = forecast$mu_log_forcast_anom,
+  sd_log_forcast_anom = forecast$sd_log_forcast_anom
 )
 
 
@@ -229,8 +233,8 @@ if(!file.exists("results/fit_pre_season_sockeye_stan_RW_day_pct.RDS")){
     data=standat,
     cores = 4,
     chains=4,
-    iter=200,
-    warmup = 100,
+    iter=1000,
+    warmup = 500,
     thin = 1,
   )
   stop<-Sys.time()
@@ -241,7 +245,7 @@ if(!file.exists("results/fit_pre_season_sockeye_stan_RW_day_pct.RDS")){
   fit<-readRDS("results/fit_pre_season_sockeye_stan_RW_day_pct.RDS")
 }
 
-ml_trs=dat_trs%>%filter(!is.na(trs))%>%summarise(ml_trs = mean(log(trs)))%>%dplyr::select(ml_trs)%>%unlist()
+ml_trs=dat_trs%>%filter(!is.na(trs) & year < max(year))%>%summarise(ml_trs = mean(log(trs)))%>%dplyr::select(ml_trs)%>%unlist()
 
 abundance<-tibble(melt(extract(fit)$b3))%>%
   dplyr::rename(draw=iterations,year=Var2,value=value)%>%
@@ -257,7 +261,6 @@ ggplot(abundance,aes(x=year,y=trs))+
   geom_ribbon(mapping = aes(x=year,ymin =`0.25`, ymax = `0.75`),alpha=0.25,fill="red")+
   geom_line(mapping=aes(x=year,y=`0.5`),color="red")+
   geom_point()+
-  geom_point(mapping=aes(x=max(abundance$year),y=median(forecast$Estimate)),color="red",fill="red")+
   ylim(0,NA)
 
 abundance%>%
