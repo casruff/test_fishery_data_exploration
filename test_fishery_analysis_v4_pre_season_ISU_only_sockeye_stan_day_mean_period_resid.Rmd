@@ -91,6 +91,9 @@ modeldir <- here("jags")
 yr_frst <- 2010
 yr_last <- 2021
 
+#evaluation week
+wk_eval <- 28
+
 
 ## data file names
 ## 1. file with escapement data
@@ -171,6 +174,11 @@ dat<-dat_tst_fsh%>%
          period = (year-1) * max(day,na.rm = TRUE) + day
          )%>%
   filter(!is.na(day))
+
+
+dat <- rbind(dat%>%
+  filter(year < max(year)),dat%>%
+  filter(year == max(year) & week_num < 29))
 
 
 forecast <- read_csv(file.path(datadir,"sockeyeforecast.csv"))%>% 
