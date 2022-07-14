@@ -89,7 +89,7 @@ modeldir <- here("jags")
 
 ## first & last years of fish data
 yr_frst <- 2010
-yr_last <- 2021
+yr_last <- 2022
 
 
 ## data file names
