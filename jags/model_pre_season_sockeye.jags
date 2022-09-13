@@ -1,0 +1,57 @@
+model
+{
+  #Data
+  # S number of periods in season
+  # Y number of years
+  # sites number of sites
+  # netsets max number of net sets
+  # site site for each obs
+  # set_num set number for each obs
+  # effort effort in hrs
+  # lm_trs log(mean(total run size)) 
+  # obs  observation number
+  # sockeyeC sockeye catch
+  # year year index for obs
+  # ylist list of unique year indexes
+  # mu_log_forcast_anom log of preaseason forecast median minus lm_trs
+  # sd_log_forcast_anom sd(log(preseason forecast pdf minus lm_trs))
+  
+  #Process Model
+  # for(i in 2:(S*Y)){
+  #   eps2[i-1] ~ dnorm(0,1^-1)
+  #   resid2[i] = resid2[i-1] + eps2[i-1] * sigma2
+  # }
+
+  for(i in 2:S){
+    eps[i-1] ~ dnorm(0,1^-1)
+    resid[i] = resid[i-1] + eps[i-1] * sigma
+  }
+  
+  #Likelihood
+  for(i in 1:obs){
+    log_lambda[i] = intercept + b2[set_num[i]] + log(effort[i]) + b3[year[i]] + resid[day[i]] + b4 * zl_flow[i] #+ resid2[period[i]]
+    p[i] <- r / (r + exp(log_lambda[i]))
+    SockeyeC[i] ~ dnegbin(p[i], r)
+  }
+  
+  #Priors
+  sigma ~ dt(0,2.5^-2,1) T(0,)
+  # sigma2 ~ dt(0,2.5^-2,1) T(0,)
+  sigma_set ~ dt(0,2.5^-2,1) T(0,)
+  sigma_disp ~ dt(0,2.5^-2,1) T(0,)
+  r = sigma_disp^-2 #negative binomial overdispersion parameter
+  intercept ~ dnorm(0,10^-2)
+  b2[1] = 0;
+  resid[1] = 0;
+  #resid2[1] = 0;
+  b4 ~ dnorm(0,5^-2);
+  
+  for(i in 2:netsets){
+    eps_site[i-1] ~ dnorm(0,1^-1)
+    b2[i] =  eps_site[i-1] * sigma_set
+  }
+  for(i in 1:(Y_obs-1)){
+    b3[ylist[i]] = log_trs_anom[i]
+  }
+  b3[ylist[Y_obs]] ~ dnorm(mu_log_forcast_anom,sd_log_forcast_anom^-2)
+}

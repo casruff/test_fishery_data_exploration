@@ -1,0 +1,68 @@
+model
+{
+  #Data
+  # S number of periods in season
+  # Y number of years
+  # sites number of sites
+  # netsets max number of net sets
+  # site site for each obs
+  # set_num set number for each obs
+  # effort effort in hrs
+  # lm_trs log(mean(total run size)) 
+  # obs  observation number
+  # SthdW wild steelhead catch
+  # year year index for obs
+  # ylist list of unique year indexes
+  
+  #Process Model
+  for(i in 2:S){
+    resid[i] = resid[i-1] + eps[i-1] * sigma
+  }
+  #RW version of year effect
+  # for(i in 2:Y){
+  #   b3[i] = b3[i-1] + eps_Y[i-1] * sigma_Y
+  # }
+  
+  #Derived params
+  for(i in 2:sites){
+    b1[i] = eps_S[i-1] * sigma_site
+  }
+  #RW version of year effect
+
+  
+  #Likelihood
+  for(i in 1:obs){
+    log_lambda[i] = intercept + b1[site[i]] + b2[set_num[i]] + log(effort[i]) + b3[year[i]] + resid[day[i]]
+    p[i] <- r / (r + exp(log_lambda[i]))
+    SthdW[i] ~ dnegbin(p[i], r)
+  }
+  
+  #Priors
+  sigma ~ dt(0,2.5^-2,1) T(0,)
+  # sigma_Y ~ dt(0,2.5^-2,1) T(0,)
+  sigma_site ~ dt(0,2.5^-2,1) T(0,)
+  sigma_disp ~ dt(0,2.5^-2,1) T(0,)
+  r = sigma_disp^-2 #negative binomial overdispersion parameter
+  b1[1] = 0;
+  b2[1] = 0;
+  b3[1] = 0;
+  resid[1] = 0;
+  intercept ~ dnorm(0,10^-2)
+  
+  for(i in 2:sites){
+    eps_S[i-1] ~ dnorm(0,1^-1)
+  }
+  for(i in 2:S){
+    eps[i-1] ~ dnorm(0,1^-1)
+  }
+  for(i in 2:netsets){
+    b2[i] ~ dnorm(0,5^-2) 
+  }
+  for(i in 2:Y_obs){
+    b3[ylist[i]] ~ dnorm(0,2^-2)
+  }
+  #RW version of year effect
+  # for(i in 2:Y){
+  #   eps_Y[i] ~ dnorm(0,1^-2)
+  # }
+}
