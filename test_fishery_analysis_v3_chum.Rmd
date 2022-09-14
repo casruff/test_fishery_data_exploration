@@ -190,7 +190,8 @@ preds<-data.frame(mle=c(exp(preds_yr$fit - mean(preds_yr$fit) + median(dat$ml_tr
 
 
 newdat<-newdat%>%
-  bind_cols(preds)
+  bind_cols(preds)%>%
+  mutate(error = mle - trs)
 
 
 ggplot(data=newdat,aes(x=year, y=trs))+
@@ -205,13 +206,25 @@ newdat%>%
   dplyr::select(year,trs,mle,l50,u50,l95,u95)%>%
   kbl(caption = "Table 1. Predicted vs. observed TRS",digits =0)%>%
   kable_classic(full_width = F, html_font = "Cambria")
+
+print(newdat%>%
+        summarize(
+          me = mean(error),
+          mae = mean(abs(error)),
+          mae = mean(error/trs)*100,
+          mape = mean(abs(error)/trs) * 100,
+                 rmse = sqrt(mean(error^2)),
+          mase = mean(abs(error))/mean(abs(diff(trs)))
+                  )%>%
+        print()
+)
 ```
 
 ## Analysis by date/location (pooling sets)
 Here we will combine the three datasets, fit a series of gam models with spline terms for day of year, interactions between day of year and year (e.g., time-varying run timing), and random effects for set number. Here the response variable is catch per per net set. Offset terms include the Total Run Size. Once a "best model" is fit, the best model is refit dropping the offset for Total Runsize and is then used to predict total run size (using the mean(log(runsize)) as an offset. Predictions are compared with observations.
 
 Results shown include:
-  1) the model selection table 
+1) the model selection table 
 2) the summary statistics for the best model
 3) plots of the spline terms on the link scale for the best model
 4) the "gam.check" plots for goodness of fit and GOF statistics table
@@ -288,7 +301,8 @@ preds<-data.frame(mle=c(exp(preds_yr$fit - mean(preds_yr$fit) + median(dat$ml_tr
 
 
 newdat<-newdat%>%
-  bind_cols(preds)
+  bind_cols(preds)%>%
+  mutate(error = mle - trs)
   
 
 ggplot(data=newdat,aes(x=year, y=trs))+
@@ -304,4 +318,83 @@ newdat%>%
   dplyr::select(year,trs,mle,l50,u50,l95,u95)%>%
   kbl(caption = "Table 2. Predicted vs. observed TRS",digits =0)%>%
   kable_classic(full_width = F, html_font = "Cambria")
+
+print(newdat%>%
+        summarize(
+          ME = mean(error),
+          MAE = mean(abs(error)),
+          MAE = mean(error/trs)*100,
+          MAPE = mean(abs(error)/trs) * 100,
+                 rmse = sqrt(mean(error^2)),
+          MASE = mean(abs(error))/mean(abs(diff(trs)))
+                  )%>%
+        print()
+)
+
 ```
+
+# Alternative Approach 
+
+model with trs as response variable....use CPUE as covariate....no fancy observation model, requires consistent data (no missing, no zeros)
+```{r Analysis_v3, message = FALSE, warning = FALSE,results = "show"}
+
+#look at data to see consistency
+dat_tst_fsh%>%
+  group_by(year,day,date,week)%>%
+  summarise(count = sum(count),
+           effort = max(set)
+           )%>%
+  left_join(dat_trs)%>%
+  group_by(year,week)%>%
+  summarise(n = n()
+            )%>%
+  pivot_wider(names_from = week,values_from = n)%>%
+  dplyr::select(sort(current_vars()))%>%
+  data.frame()
+
+
+
+dat<-dat_tst_fsh%>%
+  group_by(year,day,date,week)%>%
+  summarise(count = sum(count),
+           effort = max(set)
+           )%>%
+  left_join(dat_trs)%>%
+  mutate(CPUE = count/effort
+         )%>%
+  filter(week %in%c(42:46))%>%
+  group_by(year,trs)%>%
+  summarise(
+    n = n(),
+    geomean_CPUE = exp(log(sum(CPUE)) - log(n))
+  )
+
+m1<-auto.arima(dat$trs, xreg=log(dat$geomean_CPUE), lambda = 0)
+
+results<-tibble(year=dat$year,
+                trs=dat$trs,
+                mle=m1$fitted, 
+                l95 = exp(qnorm(0.025,log(m1$fitted),sqrt(m1$sigma2))), 
+                u95 = exp(qnorm(0.975,log(m1$fitted),sqrt(m1$sigma2))),
+                l50 = exp(qnorm(0.25,log(m1$fitted),sqrt(m1$sigma2))), 
+                u50 = exp(qnorm(0.75,log(m1$fitted),sqrt(m1$sigma2))),
+                )
+
+ggplot(results,aes(x=year,y=trs))+
+  geom_ribbon(aes(x=year,ymin=l95,ymax=u95),fill="cadetblue",color=NA,alpha=0.5)+
+  geom_ribbon(aes(x=year,ymin=l50,ymax=u50),fill="cadetblue",color=NA,alpha=0.5)+
+  geom_line(aes(x=year,y=mle),color="cadetblue")+
+  geom_point(aes(x=year,y=mle),color="cadetblue")+
+  geom_point(aes(x=year,y=trs))
+
+results%>%
+  dplyr::select(year,trs,mle,l50,u50,l95,u95)%>%
+  kbl(caption = "Table 2. Predicted vs. observed TRS",digits =0)%>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+print(summary(m1))
+
+
+
+```
+
