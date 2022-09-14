@@ -207,17 +207,17 @@ newdat%>%
   kbl(caption = "Table 1. Predicted vs. observed TRS",digits =0)%>%
   kable_classic(full_width = F, html_font = "Cambria")
 
-print(newdat%>%
+newdat%>%
         summarize(
-          me = mean(error),
-          mae = mean(abs(error)),
-          mae = mean(error/trs)*100,
-          mape = mean(abs(error)/trs) * 100,
-                 rmse = sqrt(mean(error^2)),
-          mase = mean(abs(error))/mean(abs(diff(trs)))
+          ME = mean(error),
+          MAE = mean(abs(error)),
+          MPE = mean(error/trs)*100,
+          MAPE = mean(abs(error)/trs) * 100,
+          RMSE = sqrt(mean(error^2)),
+          MASE = mean(abs(error))/mean(abs(diff(trs)))
                   )%>%
         print()
-)
+
 ```
 
 ## Analysis by date/location (pooling sets)
@@ -316,20 +316,20 @@ ggplot(data=newdat,aes(x=year, y=trs))+
 
 newdat%>%
   dplyr::select(year,trs,mle,l50,u50,l95,u95)%>%
-  kbl(caption = "Table 2. Predicted vs. observed TRS",digits =0)%>%
+  kbl(caption = "Table 3. Predicted vs. observed TRS",digits =0)%>%
   kable_classic(full_width = F, html_font = "Cambria")
 
-print(newdat%>%
+newdat%>%
         summarize(
           ME = mean(error),
           MAE = mean(abs(error)),
-          MAE = mean(error/trs)*100,
+          MPE = mean(error/trs)*100,
           MAPE = mean(abs(error)/trs) * 100,
-                 rmse = sqrt(mean(error^2)),
+          RMSE = sqrt(mean(error^2)),
           MASE = mean(abs(error))/mean(abs(diff(trs)))
                   )%>%
-        print()
-)
+  print()
+
 
 ```
 
