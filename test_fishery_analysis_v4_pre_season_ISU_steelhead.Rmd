@@ -1,6 +1,6 @@
 ---
 title: Skagit Steelhead Test Fishery Data Exploration
-author: Thomas Buehrens (tbuehrens@dfw.wa.gov) & Casey Ruff (cruff@swinomish.nsn.us)
+author: Thomas Buehrens (Washington Department of Fish and Wildlife, tbuehrens@dfw.wa.gov), Bob McClure (Upper Skagit Indian Tribe, bobm@upperskagit.com), Garrett Rowles (Upper Skagit Indian Tribe, growles@upperskagit.com), and Casey Ruff (Swinomish Tribe, cruff@swinomish.nsn.us)
 output:
   html_document:
     code_folding: hide
@@ -88,7 +88,7 @@ modeldir <- here("jags")
 
 ## first & last years of fish data
 yr_frst <- 2013
-yr_last <- 2022
+yr_last <- 2023
 
 
 ## data file names
@@ -110,7 +110,7 @@ In this section we will load 1) the Total Run Size data, 2) the Test Fishery Dat
 dat_trs <- read_csv(file.path(datadir,fn_trs))
 ## read in test fishery data
 dat_tst_fsh <- read_csv(file.path(datadir,fn_tst_fsh))%>%
-  mutate(date = mdy(date))
+  mutate(date = mdy(date),week = week(ymd(date)))
 
 
 
@@ -157,6 +157,7 @@ The log(centered year effect) is given as data for all but the final incomplete 
 *the model will not produce EXACTLY the preseason forecast with no ISU data. It is using a log-normal distribution to approximate the probability density function of the pre-season forecast, which is very good but inexact so actual forecasts with no ISU data may vary by 1-2% of the "true" preseason forecast.
 ```{r Analysis_pre_season, message=FALSE, warning=FALSE, results="show"}
 dat<-dat_tst_fsh%>%
+  filter(year <= yr_last)%>%
   left_join(dat_trs)%>%
   left_join(dat_flow)%>%
   mutate(site=factor(site),
@@ -164,7 +165,8 @@ dat<-dat_tst_fsh%>%
          effort = as.numeric(time_out-time_in)*60*60,
          lm_trs = log(mean(unique(trs),na.rm = TRUE))
          )%>%
-  filter(set_num < 3 )%>%
+  filter(set_num < 3)%>%
+  #filter(week < 16)%>%
   add_rownames()%>%
   mutate(year = year - min(year) + 1,
          day = day - min(day,na.rm = TRUE) + 1,
@@ -172,8 +174,16 @@ dat<-dat_tst_fsh%>%
          )%>%
   filter(!is.na(day))
 
-forecast<-read_csv("https://raw.githubusercontent.com/tbuehrens/Skagit-River-Steelhead-Forecast/master/analysis/cache/ensemble_forecast_posterior.csv")%>%
-  mutate(log_F=log(ensemble_forecast_posterior),
+
+write.csv(dat,"dat.csv")
+
+# forecast<-read_csv("https://raw.githubusercontent.com/casruff/Skagit-River-Steelhead-Forecast/master/analysis/cache/ensemble_forecast_posterior.csv")%>%
+#   mutate(log_F=log(ensemble_forecast_posterior),
+#          log_F_anom = log_F - unique(dat$lm_trs)
+#          )
+
+forecast<-read_csv(file.path(datadir,"ensemble_forecast_posterior_retrospective.csv"))%>%
+  mutate(log_F=log(ensemble_forecast_posterior_2020),
          log_F_anom = log_F - unique(dat$lm_trs)
          )
 
