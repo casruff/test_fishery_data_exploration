@@ -1,0 +1,765 @@
+---
+title: Skagit Steelhead Test Fishery Data Exploration
+author: Thomas Buehrens (Washington Department of Fish and Wildlife, tbuehrens@dfw.wa.gov), Bob McClure (Upper Skagit Indian Tribe, bobm@upperskagit.com), Garrett Rowles (Upper Skagit Indian Tribe, growles@upperskagit.com), and Casey Ruff (Swinomish Tribe, cruff@swinomish.nsn.us)
+output:
+  html_document:
+    code_folding: hide
+    fig_caption: yes
+    theme: cerulean
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+---
+
+***
+
+Last Updated `r format(Sys.time(), '%m/%d/%Y')`.
+
+***
+
+
+# Overview
+This script fits a regression model to Skagit Steelhead Test Fishery Data with Total Run Size as an offset. In years prior to the final year, the "observed" TRS is supplied as the offset. In the final In-Season-Update (ISU) year, the mean and sd of the preseason forecast are supplied as priors for the TRS. When this model is fit with no data for the final year, it returns exactly* the preseason forecast. As ISU test fishery data is added, the model progressively updates the pre-season forecast, providing an ISU estimate of runsize.
+
+*the model will not produce EXACTLY the preseason forecast with no ISU data. It is using a log-normal distribution to approximate the probability density function of the pre-season forecast, which is very good but inexact so actual forecasts with no ISU data may vary by 1-2% of the "true" preseason forecast.
+
+The code repository used to generate this page and complete analyses can be found here: [**(link)**](https://github.com/casruff/test_fishery_data_exploration)
+
+## Setup
+All analyses require R software [**(link)**](https://cran.r-project.org/) (v3.4.3) for data retrieval, data processing, and summarizing model results. Here we configure R to perform our analysis and generate our outputs
+```{r set_options, echo = TRUE, message = FALSE}
+options(width = 100)
+knitr::opts_chunk$set(message = FALSE)
+set.seed(123)
+```
+
+We also need a couple of helper functions which we will define
+```{r load_funcs, message = FALSE, warning = FALSE,results = "hide"}
+#function to install or load packages
+install_or_load_pack <- function(pack){
+  create.pkg <- pack[!(pack %in% installed.packages()[, "Package"])]
+  if (length(create.pkg))
+    install.packages(create.pkg, dependencies = TRUE)
+  sapply(pack, require, character.only = TRUE)
+}
+
+```
+
+Here we will load & install packages we need to use (needs internet connection if packages not already installed)
+```{r load_packages, message = FALSE, warning = FALSE,results = "hide"}
+packages_list<-c("tidyverse"
+                 ,"forecast"
+                 ,"mgcv"
+                 ,"ggplot2"
+                 ,"MASS"
+                 ,"RColorBrewer"
+                 ,"kableExtra"
+                 ,"gtools"
+                 ,"readr"
+                 ,"here"
+                 ,"readxl"
+                 ,"brms"
+                 ,"bsplus"
+                 ,"lubridate"
+                 ,"MuMIn"
+                 ,"tidymv"
+                 ,"modelr"
+                 ,"R2jags"
+                 ,"rjags"
+                 ,"loo"
+                 ,"coda"
+                 ,"shinystan"
+                 ,"dclone"
+                 ,"rstan"
+                 ,"RColorBrewer"
+                 ,"kableExtra"
+                 # ,"rnoaa"
+                 # ,"ncdf4"
+                 # ,"ncdf4.helpers"
+                 # ,"raster"
+                 ,"reshape2"
+                 # ,"ggfortify"
+                 )
+install_or_load_pack(pack = packages_list)
+```
+
+## User Inputs
+Here we will specify the years of analysis, identify data file names and the flow gauge to be used.
+```{r user_inputs, message = FALSE, warning = FALSE,results = "show"}
+## set data dir
+datadir <- here("data")
+modeldir <- here("jags")
+savedir <- here("results")
+jagsdir <- here("jags")
+
+## first & last years of fish data
+yr_frst <- 2013
+yr_last <- 2024
+
+
+##years for generating 1 step ahead forecasts
+years <- c(2017,2019,2020,2022,2023,2024)
+
+n_for <- length(years)
+
+## data file names
+## 1. file with escapement data
+fn_trs <- "sthd_trs.csv"
+
+## 2. file with age comp data
+fn_tst_fsh <- "skgt_sthd_tst_fsh_update.csv"
+
+## get flow data (currently using mainstem at mount vernon)
+## flow gage ID
+flow_site <- 12200500  
+```
+
+```{r define_funcs}
+
+#alternative wrapper to fit model in parallel; one chain per core
+fit_jags2<-function(model,data,params,inits,ctrl,dir=jagsdir){
+  cl <- makeCluster(3, type = "SOCK")
+  inits2 <- jags.fit(data=data,
+                     params=params, 
+                     model=file.path(jagsdir, model), 
+                     inits=inits,
+                     n.chains=ctrl$chains,
+                     n.adapt = 0,
+                     n.update = 0,
+                     n.iter = 0)$state(internal = TRUE)
+  jm <- jags.parfit(cl=cl,
+                    data = data,
+                    params = params, 
+                    model = file.path(jagsdir, model),
+                    inits = inits2,
+                    n.adapt = ctrl$burn*0.5,
+                    n.update = ctrl$burn*0.5,
+                    n.iter = ctrl$length-ctrl$burn,
+                    thin = ctrl$thin,
+                    n.chains = ctrl$chains
+                    )
+  stopCluster(cl)
+  return(jm)
+}
+
+#generate summary stats file from MCMC object
+sum_stats<-function(mcmclist){
+  ESS<-apply(as.matrix(mcmclist),2,ess_bulk)
+  Rhat<-apply(as.matrix(mcmclist),2,Rhat)
+  summary_stats<-summary(mcmclist)
+  summary_stats<-data.frame(summary_stats$statistics,summary_stats$quantiles,ESS,Rhat)
+}
+
+# functions for approximate LFO
+# many functions modified from:
+# https://github.com/paul-buerkner/LFO-CV-paper/blob/master/case-study-LFO-CV.Rmd
+
+#load complete model fits & model refits with subset data
+loadmodfits<-function(modelnames){
+  mod_fits<-list(NULL)
+  for(i in 1:length(modelnames)){
+    mod_fits[[i]] <- readRDS(file.path(savedir,paste0(modelnames[i],"_y",n_forecasts+1,".rds")))
+    #mod_fits[[i]] <- readRDS(file.path(savedir,paste0("fit_",modelnames[i],".rds")))
+  }
+  return(mod_fits)
+}
+
+#refits
+loadrefits<-function(refitname,N,L){
+  numrefits<-N-L+1
+  re_fits<-list()
+  for(i in 1:numrefits){
+     re_fits[[i]] <- readRDS(file.path(savedir,paste0(refitname,"_y",i,".rds")))
+  }
+  return(re_fits)
+}
+
+# more stable than log(sum(exp(x))) 
+log_sum_exp <- function(x) {
+  max_x <- max(x)
+  max_x + log(sum(exp(x - max_x)))
+}
+
+# more stable than log(mean(exp(x)))
+log_mean_exp <- function(x) {
+  log_sum_exp(x) - log(length(x))
+}
+
+# compute log of raw importance ratios
+# sums over observations *not* over posterior samples
+sum_log_ratios <- function(ll, ids = NULL) {
+  if (!is.null(ids)) ll <- ll[, ids, drop = FALSE]
+  - rowSums(ll)
+}
+# for printing comparisons later
+rbind_print <- function(...) {
+  round(rbind(...), digits = 2)
+}
+
+#function to extract log likelihood from fitted model
+extract_log_lik<-function(m,esc_only,N,mod_fits){
+  #extract pontwise log likelihoods
+  tmp_lp <- as.matrix(mod_fits[[m]])
+  ## extract pointwise likelihoods
+  tmp_lp <- tmp_lp[,grepl("lp_", colnames(tmp_lp))]
+  ## if numerical underflows, convert -Inf to 5% less than min(likelihood)
+  if(any(is.infinite(tmp_lp))) {
+    tmp_lp[is.infinite(tmp_lp)] <- NA
+    tmp_min <- min(tmp_lp, na.rm = TRUE)
+    tmp_lp[is.na(tmp_lp)] <- tmp_min * 1.05
+  }
+  if(esc_only =="Yes"){
+    tmp_lp<-tmp_lp[,grepl("esc", colnames(tmp_lp))]
+  }
+  #get yrs assoc
+  names_loglik<-data.frame(strsplit(colnames(tmp_lp),"\\[|\\]"))
+  yrnames<-as.numeric(names_loglik[2,])
+  
+  loglik <- matrix(NA,ncol=N,nrow=dim(tmp_lp)[1])
+  for(i in 1:N){
+    if(!is.null(ncol(tmp_lp[,yrnames==i]))){
+      loglik[,i] = apply(tmp_lp[,yrnames==i],1,sum)
+    }else(loglik[,i] = tmp_lp[,yrnames==i])
+  }
+  return(loglik)
+}
+
+
+approx_LFO<-function(N=N,L,m=m,esc_only,mod_fits,userefits,refitname,thres){
+  loglik =  extract_log_lik(m=m, esc_only = esc_only,N=N,mod_fits = mod_fits)
+  ## look at Pareto k's
+  k_LOOIC<-pareto_k_values(loo(loglik))[(L+1):N]
+  if(userefits=="Yes"){
+    re_fits =loadrefits(refitname=refitname,N=N,L=L)
+  }
+  i_refit <- L
+  refits <- L
+  ks <- NULL
+  approx_elpds_1sap <- rep(NA, N)
+  for (i in (N - 1):L) {
+    logratio <- sum_log_ratios(loglik, (i + 1):N)
+    psis_obj <- suppressWarnings(psis(logratio))
+    k<-pareto_k_values(psis_obj)
+    ks <- c(ks, k)
+    if(k>thres & userefits=="Yes"){
+    #use_refit of model based on the first[i] observations
+      i_refit <- i
+      refits <- c(refits, i)
+      loglik =  extract_log_lik(m=(i+1)-L+1, esc_only = esc_only,N=N,mod_fits = re_fits)
+      approx_elpds_1sap[i + 1] <- log_mean_exp(loglik[, i + 1])
+    }else{
+      lw <- weights(psis_obj, normalize = TRUE)[, 1]
+      approx_elpds_1sap[i + 1] <- log_sum_exp(lw + loglik[, i + 1])
+    }
+  }
+  results<-list(approx_elpds_1sap,ks,k_LOOIC)
+  names(results)<-c("LFO","ks","k_LOOIC")
+  return(results)
+}
+
+plot_ks <- function(ks, thres = 0.7,N,L) {
+  ids = N:(L + 1)
+  dat_ks <- data.frame(ks = ks, ids = ids)
+  ggplot(dat_ks, aes(x = ids, y = ks)) + 
+    geom_point(aes(color = ks > thres), shape = 3, show.legend = FALSE) + 
+    geom_hline(yintercept = thres, linetype = 2, color = "red2") + 
+    scale_color_manual(values = c("cornflowerblue", "darkblue")) + 
+    labs(x = "Data point", y = "Pareto k") + 
+    ylim(-0.5, max(dat_ks$ks))
+}
+#function for printing out a read text file
+processFile = function(filepath) {
+  con = file(filepath, "r")
+  while ( TRUE ) {
+    line = readLines(con, n = 1)
+    if ( length(line) == 0 ) {
+      break
+    }
+    cat(paste0(noquote(line)),"\n")
+  }
+  close(con)
+}
+#calculate stacking weights
+find_stack_weights<-function(tau,metric,n,initial_weights,preds,obs){
+  tweights<-initial_weights
+  preds<-as.matrix(preds)
+  obs<-obs
+  tau=tau
+  skill_list<-c(NULL)
+  metric=metric
+  for(i in 1:n){
+    pred_trs_ensemble<- preds %*% as.vector(tweights)
+    Error <- pred_trs_ensemble - obs
+    SE <- Error^2
+    PE <- Error/obs_trs
+    APE <- abs(PE)
+    LAR <- log(obs_trs/pred_trs_ensemble)
+  
+    RMSE <- apply(SE,2,function(x){sqrt(mean(x))})
+    MPE <- apply(PE,2,function(x){mean(x)})
+    MAPE <- apply(APE,2,function(x){mean(x)})
+    MSA <- apply(LAR,2,function(x){100*(exp(mean(abs(x)))-1)})
+    
+    if(i==1){
+      skill=get(metric)
+      weights=tweights
+    }
+    if(get(metric)<skill){
+      skill=get(metric)
+      weights=tweights
+    }
+    skill_list<-c(skill_list,min(get(metric),skill))
+    keep<-rbinom(1,prob=skill/get(metric),1)
+    if(keep==1){tweights=tweights }else(tweights=weights)
+    tweights = rdirichlet(n=1,alpha = tweights*tau+0.001)
+  }
+  results<-list(weights,skill,skill_list)
+  return(results)
+}
+
+#Function to return list of data frames 
+data_file <- function(n_for,years,currentWeek){
+  
+  ## empty list for annual data files
+  data_file <- vector("list",n_for)
+  
+  for(n in 1:n_for){
+    
+    #year of forecast
+    year.temp <- years[n]
+    
+    ## get data
+        dat<-dat_tst_fsh%>%
+        filter(year <= year.temp)%>%
+        left_join(dat_trs)%>%
+        left_join(dat_flow)%>%
+        mutate(site=factor(site),
+               zl_flow=scale(log(flow)),
+               effort = as.numeric(time_out-time_in)*60*60,
+               lm_trs = log(mean(unique(trs),na.rm = TRUE))
+               )%>%
+        filter(set_num < 3)%>%
+        filter(week <= currentWeek)%>%
+        add_rownames()%>%
+        mutate(year = year - min(year) + 1,
+               day = day - min(day,na.rm = TRUE) + 1,
+               period = (year-1) * max(day,na.rm = TRUE) + day
+               )%>%
+        filter(!is.na(day))
+        
+        data_file[[n]] <- dat
+    
+  }#next year of data
+  
+  return(data_file)
+  
+}
+
+#=================================
+#function to fit or load modelfits
+#=================================
+fit_load_mods <- function(n_for,years,currentWeek){
+  
+  ## empty list for fits
+  mod_fits <- vector("list", n_for)
+  
+  ## empty list for annual data files
+  data_file <- vector("list",n_for)
+  
+  for(n in 1:n_for){
+    #year of forecast
+    year.temp <- years[n]
+    
+    if(file.exists(file.path(savedir,paste("fit_pre_season","_",years[n],".rds",sep = "")))) {
+        mod_fits[[n]] <- readRDS(file.path(savedir,paste("fit_pre_season","_",years[n],".rds",sep = "")))
+    } 
+    else{## else, fit & save
+         
+      
+        ## get data
+        dat<-dat_tst_fsh%>%
+        filter(year <= year.temp)%>%
+        left_join(dat_trs)%>%
+        left_join(dat_flow)%>%
+        mutate(site=factor(site),
+               zl_flow=scale(log(flow)),
+               effort = as.numeric(time_out-time_in)*60*60,
+               lm_trs = log(mean(unique(trs),na.rm = TRUE))
+               )%>%
+        filter(set_num < 3)%>%
+        filter(week <= currentWeek)%>%
+        add_rownames()%>%
+        mutate(year = year - min(year) + 1,
+               day = day - min(day,na.rm = TRUE) + 1,
+               period = (year-1) * max(day,na.rm = TRUE) + day
+               )%>%
+        filter(!is.na(day))
+        
+        forecast<-read_csv(file.path(datadir,"ensemble_forecast_posterior_retrospective.csv"))%>%
+        mutate(log_F=log(unlist(forecast[,n])),
+         log_F_anom = log_F - unique(dat$lm_trs)
+         )
+
+      jagsdat<-list(
+        S = max(dat$day,na.rm = TRUE) - min(dat$day, na.rm = TRUE) + 1,
+        Y = max(dat$year) - min(dat$year) + 1,
+        sites = length(unique(dat$site)),
+        netsets = length(unique(dat$set_num)),
+        site = as.numeric(dat$site),
+        set_num = as.numeric(dat$set_num),
+        effort = dat$effort/(60*60),
+        lm_trs = dat$lm_trs,
+        ##====================================================
+        # run with these turned on to show in-season forecast
+        #=====================================================
+        obs = dat%>%nrow(),
+        SthdW = dat%>%dplyr::select(SthdW)%>%unlist(),
+        year = dat%>%dplyr::select(year)%>%unlist(),
+        day = dat%>%dplyr::select(day)%>%unlist(),
+        period = dat%>%dplyr::select(period)%>%unlist(),
+        ##====================================================
+        # run with these turned on to show pre-season forecast
+        #=====================================================
+        # obs = dat%>%filter(year<max(year))%>%nrow(),
+        # SthdW = dat%>%filter(year<max(year))%>%dplyr::select(SthdW)%>%unlist(),
+        # year = dat%>%filter(year<max(year))%>%dplyr::select(year)%>%unlist(),
+        # day = dat%>%filter(year<max(year))%>%dplyr::select(day)%>%unlist(),
+        # period = dat%>%filter(year<max(year))%>%dplyr::select(period)%>%unlist(),
+        #======================================================
+        Y_obs = length(unique(dat$year)),
+        ylist = unique(dat$year),
+        log_trs_anom = dat%>%group_by(year)%>%summarise(trs=first(log(trs)))%>%
+          dplyr::select(trs)%>%unlist()-unique(dat$lm_trs),
+        mu_log_forcast_anom = mean(forecast$log_F_anom),
+        sd_log_forcast_anom = sd(forecast$log_F_anom)
+        )
+      
+        params=c(
+          "sigma",
+          "sigma_disp",
+          "sigma_site",
+          "r",
+          "p",
+          "intercept",
+          "b1",
+          "b2",
+          "b3",
+          "resid",
+          "eps",
+          "eps_site",
+          "log_lambda")
+        
+        
+      start<-Sys.time()
+      print(start)
+      mod_fits[[n]]<-jags.parallel(
+        data=jagsdat,
+        inits=NULL,
+        parameters.to.save = params,
+        model.file = "jags/model_pre_season.jags",
+        n.chains = 4,
+        n.iter = 2000,
+        n.burnin = 1000,
+        n.thin = 1
+      )
+      stop<-Sys.time()
+      print(stop-start)
+      write.csv(mod_fits[[n]]$BUGSoutput$summary,file.path(savedir, paste("fit_pre_season","_",years[n],"_summary_stats.csv",sep = "")))
+      saveRDS(mod_fits[[n]], file.path(savedir,paste("fit_pre_season","_",years[n],".rds",sep = "")))    
+      
+             
+     # mod_fits[[n]]<- fit_jags2(model="test_fish_model_arima.txt",
+     #                         data=dat_jags,
+     #                         params=par_jags,
+     #                         inits=NULL,
+     #                         ctrl=mcmc_ctrl
+     #                         )
+     
+     
+
+     # ###
+     # saveRDS(mod_fits[[n]], file.path(savedir,paste("fit_pre_season","_",years[n],".rds",sep = "")))
+     # summary_stats<-NULL
+     #      summary_stats<-sum_stats(mcmclist= mod_fits[[n]])
+     #      write.csv(summary_stats,file.path(savedir, paste("fit_pre_season","_",years[n],"_summary_stats.csv",sep = "")))
+     #  
+    }
+  }
+  
+  return(mod_fits)
+}
+
+
+```
+
+## Load Data
+In this section we will load 1) the Total Run Size data, 2) the Test Fishery Data, and 3) The flow data.
+```{r load_data, message = FALSE, warning = FALSE,results = "show"}
+## read total runsize data
+dat_trs <- read_csv(file.path(datadir,fn_trs))
+
+##read pre-season forecast data
+forecast<-read_csv(file.path(datadir,"ensemble_forecast_posterior_retrospective.csv"))
+  
+  
+pre_season_forecast <- apply(forecast,2,function(x){quantile(x, c(0.025, 0.25, 0.5, 0.75,0.975))})%>%t()%>%
+  as.data.frame()
+rownames(pre_season_forecast) <- NULL
+pre_season_forecast <- tibble(cbind(year = years,pre_season_forecast))
+
+## read in test fishery data
+dat_tst_fsh <- read_csv(file.path(datadir,fn_tst_fsh))%>%
+  mutate(date = mdy(date),week = week(ymd(date)))
+
+
+
+## get URL for flow data from USGS
+flow_url <- paste0("https://waterdata.usgs.gov/nwis/dv",
+                   "?cb_00060=on",
+                   "&format=rdb",
+                   "&site_no=",flow_site,
+                   "&begin_date=",yr_frst,"-01-01",
+                   "&end_date=",yr_last,"-12-31")
+
+## raw flow data from USGS
+skip <- read_lines(flow_url)%>%
+  as_tibble()%>%
+  filter(grepl("\\#",value))%>%
+  summarise(skip=n())%>%
+  unlist()
+
+## flow data for years of interest
+dat_flow <-  read_tsv(flow_url,
+                      col_names = FALSE,
+                      col_types = "ciDdc",
+                      skip = skip + 2 )%>%
+  dplyr::rename(date=X3,flow=X4)%>%
+  dplyr::select(date,flow)%>%
+  mutate(flow = flow / 35.3147,
+         year= year(date),
+         day = yday(date),
+         month = month(date)
+  )
+
+#current week of data for 1 step ahead forecast
+currentWeek <-  dat_tst_fsh[dim(dat_tst_fsh)[1],"week"]
+
+```
+## ARIMA model with preseason forecast 
+This model estimates the Total Run Size (TRS) by predicting test fishery catch using regression model with the following equation:
+
+catch ~ negative binomial (prediction, over-dispersion parameter) 
+
+where
+
+prediction = exp(intercept + random effect(site) + factor(set number) + random walk (day of year) + log(effort in seconds) + log(centered year effect))
+
+The log(centered year effect) is given as data for all but the final incomplete year where TRS is unknown. It is calculated as the log(TRS) - log(mean(TRS[1:final_year-1])). The log(centered year effect) for the final incomplete year is given a normally distributed prior by subtracting log(mean(TRS[1:final_year-1])) from the log of a set of mcmc draws from the preseason forecast probability density function and calculating the mean and the sd of the resulting set of mcmc draws. Thus the model produces exactly* the preseason forecast when no new ISU data is provided for the final year, and then as ISU data is added, progressively updates this pre-season forecast providing ISU estimates of TRS.
+
+*the model will not produce EXACTLY the preseason forecast with no ISU data. It is using a log-normal distribution to approximate the probability density function of the pre-season forecast, which is very good but inexact so actual forecasts with no ISU data may vary by 1-2% of the "true" preseason forecast.
+
+
+```{r jags_IO_base}
+## fit or load models
+model<-"model
+{
+  #Data
+  # S number of periods in season
+  # Y number of years
+  # sites number of sites
+  # netsets max number of net sets
+  # site site for each obs
+  # set_num set number for each obs
+  # effort effort in hrs
+  # lm_trs log(mean(total run size)) 
+  # obs  observation number
+  # SthdW wild steelhead catch
+  # year year index for obs
+  # ylist list of unique year indexes
+  # mu_log_forcast_anom log of preaseason forecast median minus lm_trs
+  # sd_log_forcast_anom sd(log(preseason forecast pdf minus lm_trs))
+  
+  #Process Model
+  for(i in 2:S){
+    eps[i-1] ~ dnorm(0,1^-1)
+    resid[i] = resid[i-1] + eps[i-1] * sigma
+  }
+  #random effects{
+  for(i in 2:sites){
+    b1[i] = eps_site[i-1] * sigma_site
+  }
+  
+  #Likelihood
+  for(i in 1:obs){
+    log_lambda[i] = intercept + b1[site[i]] + b2[set_num[i]] + log(effort[i]) + b3[year[i]] + resid[day[i]]
+    p[i] <- r / (r + exp(log_lambda[i]))
+    SthdW[i] ~ dnegbin(p[i], r)
+  }
+  
+  #Priors
+  sigma ~ dt(0,2.5^-2,1) T(0,)
+  sigma_site ~ dt(0,2.5^-2,1) T(0,)
+  sigma_disp ~ dt(0,2.5^-2,1) T(0,)
+  r = sigma_disp^-2 #negative binomial overdispersion parameter
+  intercept ~ dnorm(0,10^-2)
+  b1[1] = 0;
+  b2[1] = 0;
+  resid[1] = 0;
+  for(i in 2:sites){
+    eps_site[i-1] ~ dnorm(0,1^-1)
+  }  
+  for(i in 2:netsets){
+    b2[i] ~ dnorm(0,5^-2) 
+  }
+  for(i in 1:(Y_obs-1)){
+    b3[ylist[i]] = log_trs_anom[i]
+  }
+  b3[ylist[Y_obs]] ~ dnorm(mu_log_forcast_anom,sd_log_forcast_anom^-2)
+}"
+
+write(model,"jags/model_pre_season.jags")
+
+mod_fits <- fit_load_mods(n_for=n_for,years=years,currentWeek=currentWeek)
+data_file <- data_file(n_for=n_for,years=years,currentWeek=currentWeek)
+```
+
+## Model selection via root mean squared error (RMSE) and mean absolute percent error (MAPE) model performance statistics. 
+
+```{r get_model_selection, warning=FALSE, cache=FALSE}
+pred <- tibble(melt(exp(mod_fits[[1]]$BUGSoutput$sims.list$b3 + unique(data_file[[1]]$lm_trs))))%>%
+    rename(draw=Var1,year=Var2,abundance=value)%>%
+    group_by(year)%>%
+    summarise(abundance = quantile(abundance, c(0.025, 0.25, 0.5, 0.75,0.975)), q = c(0.025, 0.25, 0.5, 0.75,0.975))%>%
+    pivot_wider(id_cols=year,names_from = q,values_from = abundance)%>%
+    bind_cols(data_file[[1]]%>%dplyr::select(year_real=year,trs)%>%group_by(year_real)%>%summarise(trs=first(trs)))%>%
+    dplyr::select(!year)%>%
+    mutate(year= year_real + min(dat_tst_fsh$year)-1)
+
+##start output dataframe with years where we aren't making a projection (2013 - 2016 in this case)
+pred_abundance <- pred[-dim(pred)[1],]
+
+for(i in 1:(n_for)){
+
+  pred <- tibble(melt(exp(mod_fits[[i]]$BUGSoutput$sims.list$b3 + unique(data_file[[i]]$lm_trs))))%>%
+    rename(draw=Var1,year=Var2,abundance=value)%>%
+    group_by(year)%>%
+    summarise(abundance = quantile(abundance, c(0.025, 0.25, 0.5, 0.75,0.975)), q = c(0.025, 0.25, 0.5, 0.75,0.975))%>%
+    pivot_wider(id_cols=year,names_from = q,values_from = abundance)%>%
+    bind_cols(data_file[[i]]%>%dplyr::select(year_real=year,trs)%>%group_by(year_real)%>%summarise(trs=first(trs)))%>%
+    dplyr::select(!year)%>%
+    mutate(year= year_real + min(dat_tst_fsh$year)-1)
+    
+
+    pred_abundance <- rbind(pred_abundance,pred[dim(pred)[1],])
+    
+  }
+
+forecast_comp <- tibble(cbind(pred_abundance[(dim(pred_abundance)[1]-n_for+1)
+                                             :dim(pred_abundance)[1],4],
+                              pre_season_forecast[,4]))
+
+
+obs_trs <- tibble(pred_abundance[1:(length(years)-1),"trs"])
+obs_trs <- obs_trs$trs
+  
+## compute model performance statistics
+Error <- forecast_comp - obs_trs
+SE <- Error^2
+PE <- Error/obs_trs
+APE <- abs(PE)
+LAR <- log(obs_trs/forecast_comp)
+
+
+RMSE <- apply(SE,2,function(x){sqrt(mean(x))})
+MPE <- apply(PE,2,function(x){mean(x)})
+MAPE <- apply(APE,2,function(x){mean(x)})
+MSA <- apply(LAR,2,function(x){100*(exp(median(abs(x)))-1)})
+
+model_selection <- data.frame(RMSE,MPE,MAPE,MSA)
+weights<-apply(model_selection[,!colnames(model_selection)=="MPE"], 2,function(x) (1/x)/sum(1/x))
+colnames(weights)<-paste0(colnames(weights),"_weight")
+model_selection<-data.frame(model_selection,weights)
+model_selection["2024_trs_projection"] <- t(forecast_comp[n_for,])
+ 
+##weighted forecast distribution
+f_dat <- cbind(psf = forecast[,n_for],psf_update = sort(exp(mod_fits[[n_for]]$BUGSoutput$sims.list$b3[,dim(mod_fits[[n_for]]$BUGSoutput$sims.list$b3)[2]] +
+  unique(data_file[[n_for]]$lm_trs))))
+
+colnames(f_dat) <- c("psf","psf_update")
+
+
+##weighted forecast based on RMSE_Weight
+weighted_PSF_Update <- t(quantile((as.matrix(f_dat)%*%(as.vector(model_selection[,"RMSE_weight"]))),
+         c(0.025, 0.25, 0.5, 0.75,0.975), q = c(0.025, 0.25, 0.5, 0.75,0.975)))
+weighted_PSF_Update <- cbind(year = yr_last,weighted_PSF_Update)
+weighted_PSF_Update <- data.frame(weighted_PSF_Update)
+
+###
+colnames(pre_season_forecast) <- c("year","2.5%","25%","50%","75%","97.5%")
+
+x <- pred_abundance %>%
+  left_join(pre_season_forecast)
+x[,"plot_trs"] <- x[,"trs"]
+x[(dim(x)[1]-n_for + 1):dim(x)[1],"plot_trs"] <- NA 
+x[1:(dim(x)[1]-n_for-1),2:6]<-NA
+x[1:(dim(x)[1]-n_for),9:13] <- x[1:(dim(x)[1]-n_for),2:6]
+
+colors <- c("PSF_update" = "red","PSF"= "blue")
+ggplot(x,aes(x=year,y=trs))+
+  geom_ribbon(mapping = aes(x=year,ymin =`0.025`, ymax = `0.975`),alpha=0.25,fill="red")+
+  geom_ribbon(mapping = aes(x=year,ymin =`0.25`, ymax = `0.75`),alpha=0.25,fill="red")+
+  geom_line(mapping=aes(x=year,y=`0.5`,color = "PSF_update"))+
+  geom_line(mapping=aes(x=year,y=`0.5`),color = "red")+
+  geom_point()+ 
+  geom_ribbon(mapping = aes(x=year,ymin =`2.5%`, ymax = `97.5%`),alpha=0.25,fill="blue")+
+  geom_ribbon(mapping = aes(x=year,ymin =`25%`, ymax = `75%`),alpha=0.25,fill="blue")+
+  geom_line(mapping=aes(x=year,y=`50%`,color = "PSF"))+
+  geom_line(mapping=aes(x=year,y=`50%`),color = "blue")+
+  geom_point()+
+  geom_line(mapping = aes(x = year, y = plot_trs),color = "black")+
+  ylim(0,NA)+
+  labs(color = "model")
+
+colnames(weighted_PSF_Update) <- c("year","0.025","0.25","0.50","0.75","0.975")
+colnames(pre_season_forecast) <- c("year","0.025","0.25","0.50","0.75","0.975")
+
+pre_season_forecast%>%
+  dplyr::select(year,`0.025`,`0.25`,`0.50`,`0.75`,`0.975`)%>%
+  ungroup()%>%
+  filter(year == max(year))%>%
+  kbl(caption = "Table 1. Pre-season forecast of trs",digits =0)%>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+pred_abundance%>%
+  dplyr::select(year,trs,`0.025`,`0.25`, `0.5`,`0.75`,`0.975`)%>%
+  ungroup()%>%
+  dplyr::select(!trs)%>%
+  filter(year == max(year))%>%
+  kbl(caption = "Table 2. In-Season-Update of Predicted trs",digits =0)%>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+weighted_PSF_Update%>%
+  kbl(caption = "Table 3. RMSE weighted Predicted TRS based on performance of PSF
+      and test fishery data",digits =0)%>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+
+day_effect<-tibble(melt(exp(mod_fits[[n_for]]$BUGSoutput$sims.list$resid)))%>%
+  rename(draw=Var1,day=Var2,day_effect=value)%>%
+  group_by(day)%>%
+  mutate(day=day+min(yday(data_file[[n_for]]$date))-1)%>%
+  summarise(day_effect = quantile(day_effect, c(0.025, 0.25, 0.5, 0.75,0.975)), q = c(0.025, 0.25, 0.5, 0.75,0.975))%>%
+  pivot_wider(id_cols=day,names_from = q,values_from = day_effect)
+
+ggplot(day_effect,aes(x=day,y=`0.5`))+
+  ylab("Day of Year Effect (relative to first day of test fishery")+
+  xlab("Day of Year")+
+  geom_ribbon(mapping = aes(x=day,ymin =`0.025`, ymax = `0.975`),alpha=0.25,fill="red")+
+  geom_ribbon(mapping = aes(x=day,ymin =`0.25`, ymax = `0.75`),alpha=0.25,fill="red")+
+  geom_line(mapping=aes(x=day,y=`0.5`),color="red")+
+  geom_point()+
+  ylim(0,NA)
+```

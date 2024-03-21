@@ -85,11 +85,16 @@ Here we will specify the years of analysis, identify data file names and the flo
 ## set data dir
 datadir <- here("data")
 modeldir <- here("jags")
+savedir <- here("results")
 
 ## first & last years of fish data
 yr_frst <- 2013
 yr_last <- 2023
 
+##years for generating 1 step ahead forecasts
+years <- c(2017,2019,2020,2022,2023,2024)
+
+n_for <- length(years)
 
 ## data file names
 ## 1. file with escapement data
@@ -102,6 +107,23 @@ fn_tst_fsh <- "skgt_sthd_tst_fsh_update.csv"
 ## flow gage ID
 flow_site <- 12200500  
 ```
+
+```{r define_funcs}
+fit_load_mods <- function(n_for,years){
+  
+  ## empty list for fits
+  mod_fits <- vector("list", n_for)
+  
+  for(n in 1:n_for){
+    if(file.exists(file.path(savedir,paste(model,"_","y",i,".rds",sep = "")))) {
+        mod_fits[[t]] <- readRDS(file.path(savedir,paste(model,"_","y",i,".rds",sep = "")))
+    } else{}
+  }
+  
+}
+
+```
+
 
 ## Load Data
 In this section we will load 1) the Total Run Size data, 2) the Test Fishery Data, and 3) The flow data.
@@ -141,6 +163,9 @@ dat_flow <-  read_tsv(flow_url,
          day = yday(date),
          month = month(date)
   )
+
+#current week of data for 1 step ahead forecast
+currentWeek <-  dat[dim(dat)[1],"week"]
 
 ```
 ## ARIMA model with preseason forecast 
@@ -183,7 +208,7 @@ write.csv(dat,"dat.csv")
 #          )
 
 forecast<-read_csv(file.path(datadir,"ensemble_forecast_posterior_retrospective.csv"))%>%
-  mutate(log_F=log(ensemble_forecast_posterior_2020),
+  mutate(log_F=log(ensemble_forecast_posterior_2024),
          log_F_anom = log_F - unique(dat$lm_trs)
          )
 
