@@ -118,33 +118,6 @@ flow_site <- 12200500
 ```
 
 ```{r define_funcs}
-
-#alternative wrapper to fit model in parallel; one chain per core
-fit_jags2<-function(model,data,params,inits,ctrl,dir=jagsdir){
-  cl <- makeCluster(3, type = "SOCK")
-  inits2 <- jags.fit(data=data,
-                     params=params, 
-                     model=file.path(jagsdir, model), 
-                     inits=inits,
-                     n.chains=ctrl$chains,
-                     n.adapt = 0,
-                     n.update = 0,
-                     n.iter = 0)$state(internal = TRUE)
-  jm <- jags.parfit(cl=cl,
-                    data = data,
-                    params = params, 
-                    model = file.path(jagsdir, model),
-                    inits = inits2,
-                    n.adapt = ctrl$burn*0.5,
-                    n.update = ctrl$burn*0.5,
-                    n.iter = ctrl$length-ctrl$burn,
-                    thin = ctrl$thin,
-                    n.chains = ctrl$chains
-                    )
-  stopCluster(cl)
-  return(jm)
-}
-
 #generate summary stats file from MCMC object
 sum_stats<-function(mcmclist){
   ESS<-apply(as.matrix(mcmclist),2,ess_bulk)
@@ -177,99 +150,6 @@ loadrefits<-function(refitname,N,L){
   return(re_fits)
 }
 
-# more stable than log(sum(exp(x))) 
-log_sum_exp <- function(x) {
-  max_x <- max(x)
-  max_x + log(sum(exp(x - max_x)))
-}
-
-# more stable than log(mean(exp(x)))
-log_mean_exp <- function(x) {
-  log_sum_exp(x) - log(length(x))
-}
-
-# compute log of raw importance ratios
-# sums over observations *not* over posterior samples
-sum_log_ratios <- function(ll, ids = NULL) {
-  if (!is.null(ids)) ll <- ll[, ids, drop = FALSE]
-  - rowSums(ll)
-}
-# for printing comparisons later
-rbind_print <- function(...) {
-  round(rbind(...), digits = 2)
-}
-
-#function to extract log likelihood from fitted model
-extract_log_lik<-function(m,esc_only,N,mod_fits){
-  #extract pontwise log likelihoods
-  tmp_lp <- as.matrix(mod_fits[[m]])
-  ## extract pointwise likelihoods
-  tmp_lp <- tmp_lp[,grepl("lp_", colnames(tmp_lp))]
-  ## if numerical underflows, convert -Inf to 5% less than min(likelihood)
-  if(any(is.infinite(tmp_lp))) {
-    tmp_lp[is.infinite(tmp_lp)] <- NA
-    tmp_min <- min(tmp_lp, na.rm = TRUE)
-    tmp_lp[is.na(tmp_lp)] <- tmp_min * 1.05
-  }
-  if(esc_only =="Yes"){
-    tmp_lp<-tmp_lp[,grepl("esc", colnames(tmp_lp))]
-  }
-  #get yrs assoc
-  names_loglik<-data.frame(strsplit(colnames(tmp_lp),"\\[|\\]"))
-  yrnames<-as.numeric(names_loglik[2,])
-  
-  loglik <- matrix(NA,ncol=N,nrow=dim(tmp_lp)[1])
-  for(i in 1:N){
-    if(!is.null(ncol(tmp_lp[,yrnames==i]))){
-      loglik[,i] = apply(tmp_lp[,yrnames==i],1,sum)
-    }else(loglik[,i] = tmp_lp[,yrnames==i])
-  }
-  return(loglik)
-}
-
-
-approx_LFO<-function(N=N,L,m=m,esc_only,mod_fits,userefits,refitname,thres){
-  loglik =  extract_log_lik(m=m, esc_only = esc_only,N=N,mod_fits = mod_fits)
-  ## look at Pareto k's
-  k_LOOIC<-pareto_k_values(loo(loglik))[(L+1):N]
-  if(userefits=="Yes"){
-    re_fits =loadrefits(refitname=refitname,N=N,L=L)
-  }
-  i_refit <- L
-  refits <- L
-  ks <- NULL
-  approx_elpds_1sap <- rep(NA, N)
-  for (i in (N - 1):L) {
-    logratio <- sum_log_ratios(loglik, (i + 1):N)
-    psis_obj <- suppressWarnings(psis(logratio))
-    k<-pareto_k_values(psis_obj)
-    ks <- c(ks, k)
-    if(k>thres & userefits=="Yes"){
-    #use_refit of model based on the first[i] observations
-      i_refit <- i
-      refits <- c(refits, i)
-      loglik =  extract_log_lik(m=(i+1)-L+1, esc_only = esc_only,N=N,mod_fits = re_fits)
-      approx_elpds_1sap[i + 1] <- log_mean_exp(loglik[, i + 1])
-    }else{
-      lw <- weights(psis_obj, normalize = TRUE)[, 1]
-      approx_elpds_1sap[i + 1] <- log_sum_exp(lw + loglik[, i + 1])
-    }
-  }
-  results<-list(approx_elpds_1sap,ks,k_LOOIC)
-  names(results)<-c("LFO","ks","k_LOOIC")
-  return(results)
-}
-
-plot_ks <- function(ks, thres = 0.7,N,L) {
-  ids = N:(L + 1)
-  dat_ks <- data.frame(ks = ks, ids = ids)
-  ggplot(dat_ks, aes(x = ids, y = ks)) + 
-    geom_point(aes(color = ks > thres), shape = 3, show.legend = FALSE) + 
-    geom_hline(yintercept = thres, linetype = 2, color = "red2") + 
-    scale_color_manual(values = c("cornflowerblue", "darkblue")) + 
-    labs(x = "Data point", y = "Pareto k") + 
-    ylim(-0.5, max(dat_ks$ks))
-}
 #function for printing out a read text file
 processFile = function(filepath) {
   con = file(filepath, "r")
@@ -281,43 +161,6 @@ processFile = function(filepath) {
     cat(paste0(noquote(line)),"\n")
   }
   close(con)
-}
-#calculate stacking weights
-find_stack_weights<-function(tau,metric,n,initial_weights,preds,obs){
-  tweights<-initial_weights
-  preds<-as.matrix(preds)
-  obs<-obs
-  tau=tau
-  skill_list<-c(NULL)
-  metric=metric
-  for(i in 1:n){
-    pred_trs_ensemble<- preds %*% as.vector(tweights)
-    Error <- pred_trs_ensemble - obs
-    SE <- Error^2
-    PE <- Error/obs_trs
-    APE <- abs(PE)
-    LAR <- log(obs_trs/pred_trs_ensemble)
-  
-    RMSE <- apply(SE,2,function(x){sqrt(mean(x))})
-    MPE <- apply(PE,2,function(x){mean(x)})
-    MAPE <- apply(APE,2,function(x){mean(x)})
-    MSA <- apply(LAR,2,function(x){100*(exp(mean(abs(x)))-1)})
-    
-    if(i==1){
-      skill=get(metric)
-      weights=tweights
-    }
-    if(get(metric)<skill){
-      skill=get(metric)
-      weights=tweights
-    }
-    skill_list<-c(skill_list,min(get(metric),skill))
-    keep<-rbinom(1,prob=skill/get(metric),1)
-    if(keep==1){tweights=tweights }else(tweights=weights)
-    tweights = rdirichlet(n=1,alpha = tweights*tau+0.001)
-  }
-  results<-list(weights,skill,skill_list)
-  return(results)
 }
 
 #Function to return list of data frames 
@@ -626,7 +469,8 @@ mod_fits <- fit_load_mods(n_for=n_for,years=years,currentWeek=currentWeek)
 data_file <- data_file(n_for=n_for,years=years,currentWeek=currentWeek)
 ```
 
-## Model selection via root mean squared error (RMSE) and mean absolute percent error (MAPE) model performance statistics. 
+## Model selection and weighting
+via root mean squared error (RMSE) and mean absolute percent error (MAPE) model performance statistics. 
 
 ```{r get_model_selection, warning=FALSE, cache=FALSE}
 pred <- tibble(melt(exp(mod_fits[[1]]$BUGSoutput$sims.list$b3 + unique(data_file[[1]]$lm_trs))))%>%
@@ -707,17 +551,17 @@ x[(dim(x)[1]-n_for + 1):dim(x)[1],"plot_trs"] <- NA
 x[1:(dim(x)[1]-n_for-1),2:6]<-NA
 x[1:(dim(x)[1]-n_for),9:13] <- x[1:(dim(x)[1]-n_for),2:6]
 
-colors <- c("PSF_update" = "red","PSF"= "blue")
+
 ggplot(x,aes(x=year,y=trs))+
-  geom_ribbon(mapping = aes(x=year,ymin =`0.025`, ymax = `0.975`),alpha=0.25,fill="red")+
-  geom_ribbon(mapping = aes(x=year,ymin =`0.25`, ymax = `0.75`),alpha=0.25,fill="red")+
+  geom_ribbon(mapping = aes(x=year,ymin =`0.025`, ymax = `0.975`),alpha=0.25,fill="blue")+
+  geom_ribbon(mapping = aes(x=year,ymin =`0.25`, ymax = `0.75`),alpha=0.25,fill="blue")+
   geom_line(mapping=aes(x=year,y=`0.5`,color = "PSF_update"))+
-  geom_line(mapping=aes(x=year,y=`0.5`),color = "red")+
+  geom_line(mapping=aes(x=year,y=`0.5`),color = "blue")+
   geom_point()+ 
-  geom_ribbon(mapping = aes(x=year,ymin =`2.5%`, ymax = `97.5%`),alpha=0.25,fill="blue")+
-  geom_ribbon(mapping = aes(x=year,ymin =`25%`, ymax = `75%`),alpha=0.25,fill="blue")+
+  geom_ribbon(mapping = aes(x=year,ymin =`2.5%`, ymax = `97.5%`),alpha=0.25,fill="red")+
+  geom_ribbon(mapping = aes(x=year,ymin =`25%`, ymax = `75%`),alpha=0.25,fill="red")+
   geom_line(mapping=aes(x=year,y=`50%`,color = "PSF"))+
-  geom_line(mapping=aes(x=year,y=`50%`),color = "blue")+
+  geom_line(mapping=aes(x=year,y=`50%`),color = "red")+
   geom_point()+
   geom_line(mapping = aes(x = year, y = plot_trs),color = "black")+
   ylim(0,NA)+
