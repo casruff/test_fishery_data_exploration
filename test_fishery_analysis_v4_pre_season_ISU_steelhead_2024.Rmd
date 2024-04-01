@@ -226,9 +226,9 @@ fit_load_mods <- function(n_for,years,currentWeek){
         dat<-dat_tst_fsh%>%
         filter(year <= year.temp)%>%
         left_join(dat_trs)%>%
-        left_join(dat_flow)%>%
+        #left_join(dat_flow)%>%
         mutate(site=factor(site),
-               zl_flow=scale(log(flow)),
+               #zl_flow=scale(log(flow)),
                effort = as.numeric(time_out-time_in)*60*60,
                lm_trs = log(mean(unique(trs),na.rm = TRUE))
                )%>%
@@ -304,9 +304,9 @@ fit_load_mods <- function(n_for,years,currentWeek){
         parameters.to.save = params,
         model.file = "jags/model_pre_season.jags",
         n.chains = 4,
-        n.iter = 2000,
-        n.burnin = 1000,
-        n.thin = 1
+        n.iter = 200000,
+        n.burnin = 100000,
+        n.thin = 100
       )
       stop<-Sys.time()
       print(stop-start)
@@ -355,7 +355,8 @@ pre_season_forecast <- tibble(cbind(year = years,pre_season_forecast))
 
 ## read in test fishery data
 dat_tst_fsh <- read_csv(file.path(datadir,fn_tst_fsh))%>%
-  mutate(date = mdy(date),week = week(ymd(date)))
+  mutate(date = mdy(date),week = week(ymd(date)))%>%
+  mutate(day = yday(date))
 
 
 
