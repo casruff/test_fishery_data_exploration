@@ -528,6 +528,13 @@ weights<-apply(model_selection[,!colnames(model_selection)=="MPE"], 2,function(x
 colnames(weights)<-paste0(colnames(weights),"_weight")
 model_selection<-data.frame(model_selection,weights)
 model_selection["2024_trs_projection"] <- t(forecast_comp[n_for,])
+rownames(model_selection) <- c("ISU","PSF")
+
+
+model_selection%>%
+   kbl(caption = "Table 3. RMSE weighted Predicted TRS based on performance of PSF
+      and test fishery data",digits =0)%>%
+  kable_classic(full_width = F, html_font = "Cambria")
  
 ##weighted forecast distribution
 f_dat <- cbind(psf = forecast[,n_for],psf_update = sort(exp(mod_fits[[n_for]]$BUGSoutput$sims.list$b3[,dim(mod_fits[[n_for]]$BUGSoutput$sims.list$b3)[2]] +
@@ -586,11 +593,7 @@ pred_abundance%>%
   kbl(caption = "Table 2. In-Season-Update of Predicted trs",digits =0)%>%
   kable_classic(full_width = F, html_font = "Cambria")
 
-weighted_PSF_Update%>%
-  kbl(caption = "Table 3. RMSE weighted Predicted TRS based on performance of PSF
-      and test fishery data",digits =0)%>%
-  kable_classic(full_width = F, html_font = "Cambria")
-
+print(model_selection)
 
 day_effect<-tibble(melt(exp(mod_fits[[n_for]]$BUGSoutput$sims.list$resid)))%>%
   rename(draw=Var1,day=Var2,day_effect=value)%>%

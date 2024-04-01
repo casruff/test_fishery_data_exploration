@@ -2300,8 +2300,109 @@ weights&lt;-apply(model_selection[,!colnames(model_selection)==&quot;MPE&quot;],
 colnames(weights)&lt;-paste0(colnames(weights),&quot;_weight&quot;)
 model_selection&lt;-data.frame(model_selection,weights)
 model_selection[&quot;2024_trs_projection&quot;] &lt;- t(forecast_comp[n_for,])
- 
-##weighted forecast distribution
+rownames(model_selection) &lt;- c(&quot;ISU&quot;,&quot;PSF&quot;)
+
+
+model_selection%&gt;%
+   kbl(caption = &quot;Table 3. RMSE weighted Predicted TRS based on performance of PSF
+      and test fishery data&quot;,digits =0)%&gt;%
+  kable_classic(full_width = F, html_font = &quot;Cambria&quot;)</code></pre>
+<table class=" lightable-classic" style="font-family: Cambria; width: auto !important; margin-left: auto; margin-right: auto;">
+<caption>
+Table 3. RMSE weighted Predicted TRS based on performance of PSF and test fishery data
+</caption>
+<thead>
+<tr>
+<th style="text-align:left;">
+</th>
+<th style="text-align:right;">
+RMSE
+</th>
+<th style="text-align:right;">
+MPE
+</th>
+<th style="text-align:right;">
+MAPE
+</th>
+<th style="text-align:right;">
+MSA
+</th>
+<th style="text-align:right;">
+RMSE_weight
+</th>
+<th style="text-align:right;">
+MAPE_weight
+</th>
+<th style="text-align:right;">
+MSA_weight
+</th>
+<th style="text-align:right;">
+2024_trs_projection
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+ISU
+</td>
+<td style="text-align:right;">
+1994
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+22
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+7341.700
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+PSF
+</td>
+<td style="text-align:right;">
+2806
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+54
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+5215.354
+</td>
+</tr>
+</tbody>
+</table>
+<pre class="r"><code>##weighted forecast distribution
 f_dat &lt;- cbind(psf = forecast[,n_for],psf_update = sort(exp(mod_fits[[n_for]]$BUGSoutput$sims.list$b3[,dim(mod_fits[[n_for]]$BUGSoutput$sims.list$b3)[2]] +
   unique(data_file[[n_for]]$lm_trs))))
 
@@ -2454,59 +2555,10 @@ year
 </tr>
 </tbody>
 </table>
-<pre class="r"><code>weighted_PSF_Update%&gt;%
-  kbl(caption = &quot;Table 3. RMSE weighted Predicted TRS based on performance of PSF
-      and test fishery data&quot;,digits =0)%&gt;%
-  kable_classic(full_width = F, html_font = &quot;Cambria&quot;)</code></pre>
-<table class=" lightable-classic" style="font-family: Cambria; width: auto !important; margin-left: auto; margin-right: auto;">
-<caption>
-Table 3. RMSE weighted Predicted TRS based on performance of PSF and test fishery data
-</caption>
-<thead>
-<tr>
-<th style="text-align:right;">
-year
-</th>
-<th style="text-align:right;">
-0.025
-</th>
-<th style="text-align:right;">
-0.25
-</th>
-<th style="text-align:right;">
-0.50
-</th>
-<th style="text-align:right;">
-0.75
-</th>
-<th style="text-align:right;">
-0.975
-</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td style="text-align:right;">
-2024
-</td>
-<td style="text-align:right;">
-3928
-</td>
-<td style="text-align:right;">
-5240
-</td>
-<td style="text-align:right;">
-6099
-</td>
-<td style="text-align:right;">
-7112
-</td>
-<td style="text-align:right;">
-9530
-</td>
-</tr>
-</tbody>
-</table>
+<pre class="r"><code>print(model_selection)</code></pre>
+<pre><code>##         RMSE        MPE      MAPE      MSA RMSE_weight MAPE_weight MSA_weight 2024_trs_projection
+## ISU 1994.090 -0.2041757 0.2041757 21.95881   0.5846057    0.605224  0.7099463            7341.700
+## PSF 2806.385 -0.3130182 0.3130182 53.74721   0.4153943    0.394776  0.2900537            5215.354</code></pre>
 <pre class="r"><code>day_effect&lt;-tibble(melt(exp(mod_fits[[n_for]]$BUGSoutput$sims.list$resid)))%&gt;%
   rename(draw=Var1,day=Var2,day_effect=value)%&gt;%
   group_by(day)%&gt;%
